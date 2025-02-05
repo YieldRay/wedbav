@@ -1,10 +1,12 @@
-import { SqliteDialect } from "kysely";
-import SQLite from "better-sqlite3";
-import { createFilesystemTableSQL, SqliteFs } from "./fs";
+import { LibsqlDialect } from "@libsql/kysely-libsql";
+import { SqliteFs } from "./fs";
 import { createNodeServer } from "./http";
 
 const sqliteFs = new SqliteFs(
-    new SqliteDialect({ database: new SQLite("./tmp.db").exec(createFilesystemTableSQL()) })
+    new LibsqlDialect({
+        url: "file:local.db",
+        // authToken: "<token>", // optional
+    })
 );
 
 const server = createNodeServer(sqliteFs);

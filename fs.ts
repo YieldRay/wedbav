@@ -11,18 +11,6 @@ interface Database {
     [DEFAULT_TABLE_NAME]: FilesystemTable;
 }
 
-export const createFilesystemTableSQL = (
-    tableName = DEFAULT_TABLE_NAME
-) => /* sql */ `CREATE TABLE IF NOT EXISTS ${tableName} (
-    path CHAR(4096) PRIMARY KEY,
-    created_at INTEGER NOT NULL,
-    modified_at INTEGER NOT NULL,
-    size INTEGER NOT NULL,
-    etag CHAR(1024) NOT NULL,
-    content BLOB,
-    meta TEXT
-);`;
-
 interface FilesystemTable {
     path: string;
     created_at: number;
@@ -179,15 +167,22 @@ export class SqliteFs implements FsSubset {
         return this._db.updateTable(this._tableName as DEFAULT_TABLE_NAME);
     }
 
-    constructor(dialect?: Dialect, private _tableName = DEFAULT_TABLE_NAME) {
-        if (dialect) {
-            this._db = new Kysely<Database>({ dialect });
-        } else {
-            const database = new SQLite(":memory:");
-            database.exec(createFilesystemTableSQL(_tableName));
-            const dialect = new SqliteDialect({ database });
-            this._db = new Kysely<Database>({ dialect });
-        }
+    constructor(dialect: Dialect, private _tableName = DEFAULT_TABLE_NAME) {
+        const db = new Kysely<Database>({ dialect });
+        this._db = db;
+
+        // create the table if not exists
+        db.schema
+            .createTable(_tableName)
+            .ifNotExists()
+            .addColumn("path", "char(4096)", (col) => col.primaryKey())
+            .addColumn("created_at", "integer", (col) => col.notNull())
+            .addColumn("modified_at", "integer", (col) => col.notNull())
+            .addColumn("size", "integer", (col) => col.notNull())
+            .addColumn("etag", "char(1024)", (col) => col.notNull())
+            .addColumn("content", "blob")
+            .addColumn("meta", "text")
+            .execute();
     }
 
     async access(path: PathLike): Promise<void> {
