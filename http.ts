@@ -5,7 +5,6 @@ import { FsSubset } from "./fs.ts";
 
 export function createNodeServer(fs: FsSubset) {
     return createServer(async (req, res) => {
-        const url = new URL(req.url!, `http://${req.headers.host}`);
         // convert node readable stream to Uint8Array
         const chunks: Uint8Array[] = [];
         for await (const chunk of req) chunks.push(chunk);
@@ -17,7 +16,7 @@ export function createNodeServer(fs: FsSubset) {
             headers,
             body: responseBody,
         } = await abstractWebd(fs, {
-            pathname: decodeURISafe(url.pathname),
+            pathname: decodeURISafe(req.url!),
             headers: req.headers as Record<string, string>,
             method: req.method!,
             body,
@@ -29,14 +28,13 @@ export function createNodeServer(fs: FsSubset) {
 
 export function createServeHandler(fs: FsSubset) {
     return async (req: Request) => {
-        const url = new URL(req.url);
         const {
             status,
             statusText,
             headers,
             body: responseBody,
         } = await abstractWebd(fs, {
-            pathname: decodeURISafe(url.pathname),
+            pathname: getPathnameFromURL(req.url),
             headers: Object.fromEntries(req.headers),
             method: req.method,
             body: await req.arrayBuffer(),
@@ -47,6 +45,10 @@ export function createServeHandler(fs: FsSubset) {
             headers: new Headers(headers),
         });
     };
+}
+
+export function getPathnameFromURL(url: string | URL) {
+    return decodeURISafe(new URL(url).pathname);
 }
 
 function decodeURISafe(uri: string): string {

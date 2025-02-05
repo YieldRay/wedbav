@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { parseBasicAuth } from "./auth.ts";
 import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs.ts";
+import { getPathnameFromURL } from "./http.ts";
 
 type Nullable<T> = T | null | undefined;
 
@@ -38,7 +39,7 @@ export async function abstractWebd(
         };
     }
     if (headers["user-agent"]?.startsWith("Mozilla/")) {
-        const stat = await fs.stat(pathname);
+        const stat = await fs.stat(pathname.endsWith("/") ? `${pathname}/index.html` : pathname);
         if (!stat.isFile()) {
             return { status: 404, body: "Not Found" };
         }
@@ -108,10 +109,11 @@ export async function abstractWebd(
             }
         }
         case "MOVE": {
-            const destination = headers["destination"];
-            if (!destination) {
+            const _destination = headers["destination"];
+            if (!_destination) {
                 return { status: 400, body: "Destination header is not provided" };
             }
+            const destination = getPathnameFromURL(_destination);
             try {
                 await fs.rename(pathname, destination);
                 return { status: 200 };
