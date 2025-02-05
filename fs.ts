@@ -4,12 +4,15 @@ import { Stats, Dirent, PathLike } from "node:fs";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
 
+const DEFAULT_TABLE_NAME = "filesystem";
+type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
+
 interface Database {
-    filesystem: FilesystemTable;
+    [DEFAULT_TABLE_NAME]: FilesystemTable;
 }
 
 export const createFilesystemTableSQL = (
-    tableName: string
+    tableName = DEFAULT_TABLE_NAME
 ) => /* sql */ `CREATE TABLE IF NOT EXISTS ${tableName} (
     path CHAR(4096) PRIMARY KEY,
     created_at INTEGER NOT NULL,
@@ -160,23 +163,23 @@ class VDirent implements Dirent {
     }
 }
 
-class SqliteFs implements FsSubset {
+export class SqliteFs implements FsSubset {
     /** DO NOT use it directly, use $xxx */
     private _db: Kysely<Database>;
     private get $insert() {
-        return this._db.insertInto(this._tableName as "filesystem");
+        return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
     }
     private get $select() {
-        return this._db.selectFrom(this._tableName as "filesystem");
+        return this._db.selectFrom(this._tableName as DEFAULT_TABLE_NAME);
     }
     private get $delete() {
-        return this._db.deleteFrom(this._tableName as "filesystem");
+        return this._db.deleteFrom(this._tableName as DEFAULT_TABLE_NAME);
     }
     private get $update() {
-        return this._db.updateTable(this._tableName as "filesystem");
+        return this._db.updateTable(this._tableName as DEFAULT_TABLE_NAME);
     }
 
-    constructor(dialect?: Dialect, private _tableName = "filesystem") {
+    constructor(dialect?: Dialect, private _tableName = DEFAULT_TABLE_NAME) {
         if (dialect) {
             this._db = new Kysely<Database>({ dialect });
         } else {
@@ -216,7 +219,7 @@ class SqliteFs implements FsSubset {
                 sql<number>`MAX(modified_at)`.as("modified_at"),
                 sql<number>`0`.as("size"),
             ])
-            .where("path", "like", `${pathStr}/%`)
+            .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
             .executeTakeFirst();
         if (dir) return new VStats(dir, pathStr, true);
 
@@ -302,14 +305,14 @@ class SqliteFs implements FsSubset {
         const recursive = options?.recursive ?? false;
 
         if (recursive) {
-            await this.$delete.where("path", "like", `${pathStr}/%`).execute();
+            await this.$delete.where("path", "like", `${encodePathForSQL(pathStr)}/%`).execute();
             return;
         }
 
         // check if the directory is empty
         const hasChildren = await this.$select
             .select("path")
-            .where("path", "like", `${pathStr}/%`)
+            .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
             .executeTakeFirst();
 
         if (hasChildren) {
@@ -337,7 +340,7 @@ class SqliteFs implements FsSubset {
         // check if the directory exists
         const dirExists = await this.$select
             .select("path")
-            .where("path", "like", `${pathStr}/%`)
+            .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
             .executeTakeFirst();
 
         if (!dirExists) {
@@ -362,7 +365,9 @@ class SqliteFs implements FsSubset {
             await this.$delete.where("path", "=", pathStr).execute();
             if (recursive) {
                 // remove all dirs
-                await this.$delete.where("path", "like", `${pathStr}/%`).execute();
+                await this.$delete
+                    .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
+                    .execute();
             }
         } catch (e) {
             if (!force) {
@@ -382,7 +387,9 @@ class SqliteFs implements FsSubset {
         const exists = await this.$select
             .select("path")
             .where("path", "=", pathStr)
-            .where((eb) => eb("path", "=", pathStr).or("path", "like", `${pathStr}/%`))
+            .where((eb) =>
+                eb("path", "=", pathStr).or("path", "like", `${encodePathForSQL(pathStr)}/%`)
+            )
             .executeTakeFirst();
 
         if (exists) {
@@ -415,7 +422,7 @@ class SqliteFs implements FsSubset {
         const currentDir = pathStr + "/";
         const allFiles = await this.$select
             .select(["path", "created_at", "modified_at", "size"])
-            .where("path", "like", `${currentDir}%`)
+            .where("path", "like", `${encodePathForSQL(currentDir)}%`)
             .execute(); // recursive
 
         const files: typeof allFiles = [];
@@ -437,8 +444,10 @@ class SqliteFs implements FsSubset {
                     // only add top level
                     const slashCount = (relativePath.match(/\//g) || []).length;
                     if (slashCount === 0) {
+                        // no slash, must be a file
                         files.push(file);
-                    } else if (slashCount === 1) {
+                    } else if (slashCount) {
+                        // dir1/dir2/dir3 -> dir1
                         dirs.add(relativePath.replace(/\/.+$/, ""));
                     }
                 }
@@ -452,6 +461,7 @@ class SqliteFs implements FsSubset {
             ...files.map((f) => new VDirent(currentDir, f.path)),
             ...Array.from(dirs).map((d) => new VDirent(currentDir, d, true)),
         ];
+
         if (withFileTypes) {
             return result;
         } else {
@@ -519,19 +529,19 @@ export function removeSuffixSlash(input: string) {
     return input;
 }
 
-function normalizePathLike(path: PathLike) {
+export function normalizePathLike(path: PathLike): string {
     let pathStr = String(path);
     pathStr = normalize(pathStr);
-    pathStr = pathStr.replace(/[\\%_]/g, "\\$&"); // for sql
     return removeSuffixSlash(pathStr);
 }
 
-async function createEtag(content: Uint8Array) {
+function encodePathForSQL(pathStr: string) {
+    return pathStr.replace(/[\\%_]/g, "\\$&");
+}
+
+export async function createEtag(content: Uint8Array) {
     // async for future use
     const hash = createHash("sha256");
     hash.update(content);
     return hash.digest("hex");
 }
-
-export const sqliteFs = new SqliteFs();
-export default sqliteFs;

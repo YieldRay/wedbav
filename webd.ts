@@ -1,5 +1,5 @@
 import { parseBasicAuth } from "./auth";
-import { ETAG, FsSubset, removeSuffixSlash } from "./fs";
+import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs";
 
 type Nullable<T> = T | null | undefined;
 
@@ -79,13 +79,13 @@ export async function abstractWebd(
                         isdir: boolean;
                     }> = [];
                     for (const file of files) {
-                        const path = file.parentPath + "/" + file.name;
+                        const path = normalizePathLike(pathname) + "/" + file.name;
                         const stat = await fs.stat(path);
                         dav.push({
                             path,
                             lastmodified: stat.mtime,
                             contentlength: stat.size,
-                            isdir: stat.isDirectory(),
+                            isdir: file.isDirectory(),
                         });
                     }
                     return {
@@ -119,12 +119,8 @@ export async function abstractWebd(
             }
         }
         case "DELETE": {
-            try {
-                await fs.rm(pathname);
-                return { status: 204 };
-            } catch (e) {
-                return { status: 404, body: e.message };
-            }
+            await fs.rm(pathname, { recursive: true, force: true });
+            return { status: 204 };
         }
         case "GET": {
             try {
@@ -149,10 +145,16 @@ export async function abstractWebd(
                 return { status: 404, body: e.message };
             }
         }
+        case "PROPATCH": {
+            return {
+                status: 405,
+                headers: { Allow: "PROPFIND, PUT, GET" },
+                body: "PROPATCH is not implemented",
+            };
+        }
         case "MKCOL": {
-            // TODO: fix me
-            await fs.writeFile(pathname + ".IS_DIR", Buffer.alloc(0));
-            return { status: 201 };
+            await fs.writeFile(pathname + ".DIR_STRUT_FILE", Buffer.alloc(0));
+            return { status: 201, statusText: "Created" };
         }
     }
 
@@ -163,6 +165,10 @@ export async function abstractWebd(
     };
 }
 
+function getNameFromRawPath(path: string) {
+    return removeSuffixSlash(path).split("/").pop() || "/";
+}
+
 function davXML(
     dir: string,
     files: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> = []
@@ -170,11 +176,11 @@ function davXML(
     return /* xml */ `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <d:multistatus xmlns:d="DAV:">
 <d:response>
-    <d:href>${dir}</d:href>
+    <d:href>${encodeURI(dir)}</d:href>
     <d:propstat>
         <d:prop>
             <d:getcontenttype>httpd/unix-directory</d:getcontenttype>
-            <d:displayname>${removeSuffixSlash(dir).split("/").pop() || "/"}</d:displayname>
+            <d:displayname>${getNameFromRawPath(dir)}</d:displayname>
             <d:resourcetype>
                 <d:collection/>
             </d:resourcetype>
@@ -187,10 +193,10 @@ ${files
     .map(
         ({ path, contentlength, lastmodified, isdir }) => /*xml*/ `
 <d:response>
-    <d:href>${path + (isdir ? "/" : "")}</d:href>
+    <d:href>${encodeURI(path + (isdir ? "/" : ""))}</d:href>
     <d:propstat>
         <d:prop>
-            <d:displayname>${path.split("/").pop()!}</d:displayname>
+            <d:displayname>${getNameFromRawPath(path)}</d:displayname>
             <d:getcontentlength>${contentlength}</d:getcontentlength>
             <d:getlastmodified>${lastmodified.toUTCString()}</d:getlastmodified>
             <d:resourcetype>${isdir ? "<d:collection/>" : ""}</d:resourcetype>${
@@ -205,7 +211,4 @@ ${files
     )
     .join("\n")}    
 </d:multistatus>`;
-    // .split("\n")
-    // .map((r) => r.trim())
-    // .join("");
 }
