@@ -1,4 +1,4 @@
-import { decodeBase64, encodeBase64, utf8Decoder, utf8Encoder } from "./base64";
+import { decodeBase64, encodeBase64, utf8Decoder, utf8Encoder } from "./base64.ts";
 
 const CREDENTIALS_REGEXP = /^ *(?:[Bb][Aa][Ss][Ii][Cc]) +([A-Za-z0-9._~+/-]+=*) *$/;
 const USER_PASS_REGEXP = /^([^:]*):(.*)$/;

@@ -1,14 +1,16 @@
 import { createServer } from "node:http";
-import { abstractWebd } from "./webd";
-import { FsSubset } from "./fs";
+import { Buffer } from "node:buffer";
+import { abstractWebd } from "./webd.ts";
+import { FsSubset } from "./fs.ts";
 
 export function createNodeServer(fs: FsSubset) {
     return createServer(async (req, res) => {
         const url = new URL(req.url!, `http://${req.headers.host}`);
-        // convert node readable stream to ArrayBuffer
+        // convert node readable stream to Uint8Array
         const chunks: Uint8Array[] = [];
         for await (const chunk of req) chunks.push(chunk);
-        const body = new Uint8Array(Buffer.concat(chunks));
+        const body = Buffer.concat(chunks) as unknown as Uint8Array;
+
         const {
             status,
             statusText,

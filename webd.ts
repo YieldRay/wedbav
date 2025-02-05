@@ -1,5 +1,6 @@
-import { parseBasicAuth } from "./auth";
-import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs";
+import { Buffer } from "node:buffer";
+import { parseBasicAuth } from "./auth.ts";
+import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs.ts";
 
 type Nullable<T> = T | null | undefined;
 
@@ -41,13 +42,13 @@ export async function abstractWebd(
         if (!stat.isFile()) {
             return { status: 404, body: "Not Found" };
         }
-        const content = await fs.readFile(pathname);
+        const content = (await fs.readFile(pathname)) as unknown as Uint8Array;
         return {
             status: 200,
             headers: {
-                etag: stat[ETAG],
+                etag: (stat as any)[ETAG],
                 "last-modified": stat.mtime.toUTCString(),
-                "content-length": content.byteLength.toString(),
+                "content-length": content.length.toString(),
                 "content-type": "application/octet-stream",
             },
             body: content,
@@ -103,7 +104,7 @@ export async function abstractWebd(
                     };
                 }
             } catch (e) {
-                return { status: 404, body: e.message };
+                return { status: 404, body: String(e) };
             }
         }
         case "MOVE": {
@@ -115,7 +116,7 @@ export async function abstractWebd(
                 await fs.rename(pathname, destination);
                 return { status: 200 };
             } catch (e) {
-                return { status: 404, body: e.message };
+                return { status: 404, body: String(e) };
             }
         }
         case "DELETE": {
@@ -125,7 +126,7 @@ export async function abstractWebd(
         case "GET": {
             try {
                 const name = pathname.split("/").pop()!;
-                const data = await fs.readFile(pathname);
+                const data = (await fs.readFile(pathname)) as unknown as Uint8Array;
                 return {
                     status: 200,
                     body: data,
@@ -139,10 +140,13 @@ export async function abstractWebd(
         }
         case "PUT": {
             try {
-                await fs.writeFile(pathname, body ? Buffer.from(body) : Buffer.alloc(0));
+                await fs.writeFile(
+                    pathname,
+                    body ? (Buffer.from(body) as unknown as Uint8Array) : new Uint8Array(0)
+                );
                 return { status: 201 };
             } catch (e) {
-                return { status: 404, body: e.message };
+                return { status: 404, body: String(e) };
             }
         }
         case "PROPATCH": {
@@ -153,7 +157,7 @@ export async function abstractWebd(
             };
         }
         case "MKCOL": {
-            await fs.writeFile(pathname + ".DIR_STRUT_FILE", Buffer.alloc(0));
+            await fs.writeFile(pathname + ".DIR_STRUT_FILE", new Uint8Array(0));
             return { status: 201, statusText: "Created" };
         }
     }

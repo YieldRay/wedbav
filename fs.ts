@@ -1,5 +1,5 @@
-import SQLite from "better-sqlite3";
-import { Dialect, Kysely, SqliteDialect, sql } from "kysely";
+import { Dialect, Kysely, sql } from "kysely";
+import { Buffer } from "node:buffer";
 import { Stats, Dirent, PathLike } from "node:fs";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
@@ -88,9 +88,9 @@ class VStats implements Stats {
         fullPath: string,
         isDirectory = false
     ) {
-        this[IS_DIRECTORY] = isDirectory;
-        this[FULL_PATH] = fullPath;
-        this[ETAG] = etag;
+        (this as any)[IS_DIRECTORY] = isDirectory;
+        (this as any)[FULL_PATH] = fullPath;
+        (this as any)[ETAG] = etag;
         this.mode = isDirectory ? 16877 : 33206;
         this.birthtimeMs = created_at;
         this.atimeMs = modified_at;
@@ -99,10 +99,11 @@ class VStats implements Stats {
         this.atime = new Date(modified_at);
         this.mtime = new Date(modified_at);
         this.ctime = new Date(created_at);
+        this.birthtime = new Date(created_at);
         this.size = size;
     }
-    isFile = (): boolean => !this[IS_DIRECTORY];
-    isDirectory = (): boolean => this[IS_DIRECTORY];
+    isFile = (): boolean => !(this as any)[IS_DIRECTORY];
+    isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
     isBlockDevice = (): boolean => false;
     isCharacterDevice = (): boolean => false;
     isSymbolicLink = (): boolean => false;
@@ -132,15 +133,15 @@ class VDirent implements Dirent {
     name: string;
     parentPath: string;
     constructor(prefix: string, fullPath: string, isDirectory = false) {
-        this[FULL_PATH] = fullPath;
-        this[IS_DIRECTORY] = isDirectory;
+        (this as any)[FULL_PATH] = fullPath;
+        (this as any)[IS_DIRECTORY] = isDirectory;
         const filePath = fullPath.replace(prefix, "");
         const segments = filePath.split("/");
         this.name = segments.pop()!;
         this.parentPath = segments.join("/") || "";
     }
-    isFile = (): boolean => !this[IS_DIRECTORY];
-    isDirectory = (): boolean => this[IS_DIRECTORY];
+    isFile = (): boolean => !(this as any)[IS_DIRECTORY];
+    isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
     isBlockDevice = (): boolean => false;
     isCharacterDevice = (): boolean => false;
     isSymbolicLink = (): boolean => false;
@@ -460,7 +461,7 @@ export class SqliteFs implements FsSubset {
         if (withFileTypes) {
             return result;
         } else {
-            return result.map((d) => d[FULL_PATH].replace(currentDir, ""));
+            return result.map((d) => (d as any)[FULL_PATH].replace(currentDir, ""));
         }
     }
 

@@ -1,16 +1,17 @@
+import process from "node:process";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
-import { SqliteFs } from "./fs";
-import { createNodeServer } from "./http";
+import { SqliteFs } from "./fs.ts";
+import { createServeHandler, createNodeServer } from "./http.ts";
 
-const sqliteFs = new SqliteFs(
-    new LibsqlDialect({
-        url: "file:local.db",
-        // authToken: "<token>", // optional
-    })
-);
+const url = process.env["LIBSQL_URL"] || "file:local.db";
+const authToken = process.env["AUTH_TOKEN"];
 
-const server = createNodeServer(sqliteFs);
+const sqliteFs = new SqliteFs(new LibsqlDialect({ url, authToken }));
 
-server.listen(8000, () => {
-    console.log("Server running at http://localhost:8000/");
-});
+if (typeof Deno === "object") {
+    const handler = createServeHandler(sqliteFs);
+    Deno.serve(handler);
+} else {
+    console.log("Listening on http://localhost:8000");
+    createNodeServer(sqliteFs).listen(8000);
+}
