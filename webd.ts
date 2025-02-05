@@ -45,6 +45,20 @@ export async function abstractWebd(
         if (!stat.isFile()) {
             return { status: 404, body: "Not Found" };
         }
+        if (Reflect.has(headers, "if-none-match")) {
+            if (headers["if-none-match"] === (stat as any)[ETAG]) {
+                return { status: 304 };
+            }
+        } else {
+            const ifModifiedSince = headers["if-modified-since"];
+            if (ifModifiedSince) {
+                const ims = new Date(ifModifiedSince);
+                if (ims >= stat.mtime) {
+                    return { status: 304 };
+                }
+            }
+        }
+
         const content = (await fs.readFile(p)) as unknown as Uint8Array;
         return {
             status: 200,

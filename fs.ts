@@ -539,5 +539,7 @@ export async function createEtag(content: Uint8Array) {
     // async for future use
     const hash = createHash("sha256");
     hash.update(content);
-    return hash.digest("hex");
+    const etag = `"${hash.digest("hex")}"`;
+    console.log({ etag });
+    return etag;
 }
