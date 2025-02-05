@@ -1,0 +1,16 @@
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "tsx --watch main.ts"
+    },
+    "dependencies": {
+        "better-sqlite3": "^11.8.1",
+        "kysely": "^0.27.5"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.12",
+        "@types/node": "^22.10.10",
+        "tsx": "^4.19.2"
+    }
+}
