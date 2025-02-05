@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { lookup } from "mrmime";
 import { parseBasicAuth } from "./auth.ts";
 import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs.ts";
 import { getPathnameFromURL } from "./http.ts";
@@ -39,18 +40,19 @@ export async function abstractWebd(
         };
     }
     if (headers["user-agent"]?.startsWith("Mozilla/")) {
-        const stat = await fs.stat(pathname.endsWith("/") ? `${pathname}/index.html` : pathname);
+        const p = pathname.endsWith("/") ? `${pathname}/index.html` : pathname;
+        const stat = await fs.stat(p);
         if (!stat.isFile()) {
             return { status: 404, body: "Not Found" };
         }
-        const content = (await fs.readFile(pathname)) as unknown as Uint8Array;
+        const content = (await fs.readFile(p)) as unknown as Uint8Array;
         return {
             status: 200,
             headers: {
                 etag: (stat as any)[ETAG],
                 "last-modified": stat.mtime.toUTCString(),
                 "content-length": content.length.toString(),
-                "content-type": "application/octet-stream",
+                "content-type": lookup(p) || "application/octet-stream",
             },
             body: content,
         };
@@ -109,12 +111,12 @@ export async function abstractWebd(
             }
         }
         case "MOVE": {
-            const _destination = headers["destination"];
-            if (!_destination) {
+            if (!Reflect.has(headers, "destination")) {
                 return { status: 400, body: "Destination header is not provided" };
             }
-            const destination = getPathnameFromURL(_destination);
+            const destination = getPathnameFromURL(headers["destination"]);
             try {
+                // TODO: support move dir
                 await fs.rename(pathname, destination);
                 return { status: 200 };
             } catch (e) {
