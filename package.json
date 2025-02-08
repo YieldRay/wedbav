@@ -2,7 +2,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "tsx --env-file=.env --watch main.ts"
+        "dev": "node --experimental-transform-types --env-file=.env --watch main.ts"
     },
     "dependencies": {
         "@libsql/kysely-libsql": "^0.4.1",
@@ -10,8 +10,7 @@
         "mrmime": "^2.0.0"
     },
     "devDependencies": {
-        "@types/node": "^22.10.10",
-        "tsx": "^4.19.2"
+        "@types/node": "^22.10.10"
     },
     "packageManager": "pnpm@9.15.4"
 }

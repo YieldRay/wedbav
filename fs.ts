@@ -1,6 +1,6 @@
-import { Dialect, Kysely, sql } from "kysely";
+import { type Dialect, Kysely, sql } from "kysely";
 import { Buffer } from "node:buffer";
-import { Stats, Dirent, PathLike } from "node:fs";
+import { Stats, Dirent, type PathLike } from "node:fs";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
 
@@ -154,6 +154,7 @@ class VDirent implements Dirent {
 
 export class SqliteFs implements FsSubset {
     /** DO NOT use it directly, use $xxx */
+    private _tableName: string;
     private _db: Kysely<Database>;
     private get $insert() {
         return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
@@ -168,13 +169,14 @@ export class SqliteFs implements FsSubset {
         return this._db.updateTable(this._tableName as DEFAULT_TABLE_NAME);
     }
 
-    constructor(dialect: Dialect, private _tableName = DEFAULT_TABLE_NAME) {
+    constructor(dialect: Dialect, tableName = DEFAULT_TABLE_NAME) {
+        this._tableName = tableName;
         const db = new Kysely<Database>({ dialect });
         this._db = db;
 
         // create the table if not exists
         db.schema
-            .createTable(_tableName)
+            .createTable(tableName)
             .ifNotExists()
             .addColumn("path", "char(4096)", (col) => col.primaryKey())
             .addColumn("created_at", "integer", (col) => col.notNull())
@@ -540,6 +542,5 @@ export async function createEtag(content: Uint8Array) {
     const hash = createHash("sha256");
     hash.update(content);
     const etag = `"${hash.digest("hex")}"`;
-    console.log({ etag });
     return etag;
 }

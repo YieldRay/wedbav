@@ -1,9 +1,9 @@
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
-import { abstractWebd } from "./webd.ts";
-import { FsSubset } from "./fs.ts";
+import { abstractWebd, type WebdOptions } from "./webd.ts";
+import { type FsSubset } from "./fs.ts";
 
-export function createNodeServer(fs: FsSubset) {
+export function createNodeServer(fs: FsSubset, options?: WebdOptions) {
     return createServer(async (req, res) => {
         // convert node readable stream to Uint8Array
         const chunks: Uint8Array[] = [];
@@ -15,30 +15,38 @@ export function createNodeServer(fs: FsSubset) {
             statusText,
             headers,
             body: responseBody,
-        } = await abstractWebd(fs, {
-            pathname: decodeURISafe(req.url!),
-            headers: req.headers as Record<string, string>,
-            method: req.method!,
-            body,
-        });
+        } = await abstractWebd(
+            fs,
+            {
+                pathname: decodeURISafe(req.url!),
+                headers: req.headers as Record<string, string>,
+                method: req.method!,
+                body,
+            },
+            options
+        );
         res.writeHead(status, statusText, headers);
         res.end(responseBody);
     });
 }
 
-export function createServeHandler(fs: FsSubset) {
+export function createServeHandler(fs: FsSubset, options?: WebdOptions) {
     return async (req: Request) => {
         const {
             status,
             statusText,
             headers,
             body: responseBody,
-        } = await abstractWebd(fs, {
-            pathname: getPathnameFromURL(req.url),
-            headers: Object.fromEntries(req.headers),
-            method: req.method,
-            body: await req.arrayBuffer(),
-        });
+        } = await abstractWebd(
+            fs,
+            {
+                pathname: getPathnameFromURL(req.url),
+                headers: Object.fromEntries(req.headers),
+                method: req.method,
+                body: await req.arrayBuffer(),
+            },
+            options
+        );
         return new Response(responseBody, {
             status,
             statusText,

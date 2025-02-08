@@ -9,8 +9,8 @@
             "request": "launch",
             "name": "Launch Program",
             "skipFiles": ["<node_internals>/**"],
-            "runtimeArgs": ["--import=tsx"],
-            "program": "${workspaceFolder}\\fs.ts",
+            "runtimeArgs": ["--experimental-transform-types"],
+            "program": "${workspaceFolder}\\main.ts",
             "outFiles": ["${workspaceFolder}/**/*.js"]
         }
     ]

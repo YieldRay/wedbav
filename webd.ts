@@ -1,8 +1,10 @@
 import { Buffer } from "node:buffer";
+import process from "node:process";
 import { lookup } from "mrmime";
 import { parseBasicAuth } from "./auth.ts";
-import { ETAG, FsSubset, normalizePathLike, removeSuffixSlash } from "./fs.ts";
+import { type FsSubset, ETAG, normalizePathLike, removeSuffixSlash } from "./fs.ts";
 import { getPathnameFromURL } from "./http.ts";
+import { html } from "./html.ts";
 
 type Nullable<T> = T | null | undefined;
 
@@ -21,10 +23,24 @@ interface AbstractServer {
     };
 }
 
+export interface WebdOptions {
+    auth?: (username: string, password: string) => boolean;
+    /** @default {"enabled"} */
+    browser?: "list" | "enabled" | "disabled";
+}
+
+function getAuthDefault() {
+    const username = process.env["WEBD_USERNAME"];
+    const password = process.env["WEBD_PASSWORD"];
+    if (username && password) {
+        return (un: string, pw: string) => un === username && pw === password;
+    }
+}
+
 export async function abstractWebd(
     fs: FsSubset,
     request: AbstractServer["request"],
-    auth?: (username: string, password: string) => boolean
+    { auth = getAuthDefault(), browser = "enabled" }: WebdOptions = {}
 ): Promise<AbstractServer["response"]> {
     const { pathname, headers, method, body } = request;
     console.log(`${new Date().toLocaleString()} ${method} ${pathname}`);
@@ -39,11 +55,50 @@ export async function abstractWebd(
             },
         };
     }
-    if (headers["user-agent"]?.startsWith("Mozilla/")) {
+
+    if (browser !== "disabled" && headers["user-agent"]?.startsWith("Mozilla/")) {
         const p = pathname.endsWith("/") ? `${pathname}/index.html` : pathname;
         const stat = await fs.stat(p);
         if (!stat.isFile()) {
-            return { status: 404, body: "Not Found" };
+            if (browser !== "list") return { status: 404, body: "Not Found" };
+            const files = await fs.readdir(pathname, { withFileTypes: true });
+            if (files.length === 0)
+                return {
+                    status: 404,
+                    headers: { "Content-Type": "text/html; charset=UTF-8" },
+                    body: html`<html>
+                        <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                            <title>404 Not Found</title>
+                        </head>
+                        <body>
+                            <center><h1>404 Not Found</h1></center>
+                            <hr />
+                            <center>${displayVersion()}</center>
+                        </body>
+                    </html>`,
+                };
+            const dir = removeSuffixSlash(pathname);
+            return {
+                status: 200,
+                headers: { "Content-Type": "text/html; charset=UTF-8" },
+                body: html`<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Index of ${dir}</title></head>
+                <body><h1>Index of ${dir}</h1>
+                    <ul>
+                    ${files
+                        .filter((file) => file.isDirectory())
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((file) => `<li><a href="./${file.name}/">${file.name}/</a></li>`)
+                        .join("\n")}
+                    </ul>
+                    ${files
+                        .filter((file) => file.isFile())
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((file) => `<li><a href="./${file.name}">${file.name}</a></li>`)
+                        .join("\n")}
+                    </ul>
+                    </body></html>`,
+            };
         }
         if (Reflect.has(headers, "if-none-match")) {
             if (headers["if-none-match"] === (stat as any)[ETAG]) {
@@ -77,9 +132,7 @@ export async function abstractWebd(
         if (!basic || !auth(basic.username, basic.password)) {
             return {
                 status: 401,
-                headers: {
-                    "WWW-Authenticate": `Basic realm=""`,
-                },
+                headers: { "WWW-Authenticate": `Basic realm=""` },
             };
         }
     }
@@ -233,4 +286,12 @@ ${files
     )
     .join("\n")}    
 </d:multistatus>`;
+}
+
+function displayVersion() {
+    for (const k of ["deno", "bun", "node"]) {
+        const v = process.versions[k];
+        if (v) return `${k} v${v}`;
+    }
+    throw new Error("unreachable");
 }

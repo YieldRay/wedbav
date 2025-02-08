@@ -1,7 +1,7 @@
 {
     "deploy": {
         "project": "webd",
-        "exclude": ["node_modules", ".vscode", "**/node_modules"],
+        "exclude": [".vscode", "**/node_modules"],
         "include": [],
         "entrypoint": "main.ts"
     }
