@@ -189,17 +189,7 @@ export class SqliteFs implements FsSubset {
     }
 
     async access(path: PathLike): Promise<void> {
-        const pathStr = normalizePathLike(path);
-        const first = await this.$select
-            .select("path")
-            .where("path", "=", pathStr)
-            .executeTakeFirst();
-        if (!first)
-            throw new VFSError("no such file or directory", {
-                syscall: "access",
-                code: "ENOENT",
-                path,
-            });
+        await this.stat(path);
     }
 
     async stat(path: PathLike): Promise<Stats> {
@@ -266,36 +256,45 @@ export class SqliteFs implements FsSubset {
         const newPathStr = normalizePathLike(newPath);
 
         // check if oldPathStr exists
-        const file = await this.$select
-            .select("path")
-            .where("path", "=", oldPathStr)
-            .executeTakeFirst();
-        if (!file) {
-            throw new VFSError("no such file or directory", {
-                syscall: "rename",
-                code: "ENOENT",
-                path: oldPath,
-            });
-        }
+        const stat = await this.stat(oldPath);
 
         //  check if newPathStr exists
-        const exists = await this.$select
-            .select("path")
-            .where("path", "=", newPathStr)
-            .executeTakeFirst();
-        if (exists) {
+        try {
+            await this.stat(newPath);
             throw new VFSError("file already exists", {
                 syscall: "rename",
                 code: "EEXIST",
                 path: newPath,
             });
+        } catch (e) {
+            if (e instanceof VFSError) {
+                // file does not exist, continue
+            } else {
+                throw e;
+            }
         }
 
-        // rename
-        await this.$update
-            .set({ path: newPathStr, modified_at: Date.now() })
-            .where("path", "=", oldPathStr)
-            .execute();
+        if (stat.isFile()) {
+            // rename file
+            await this.$update
+                .set({ path: newPathStr, modified_at: Date.now() })
+                .where("path", "=", oldPathStr)
+                .execute();
+        } else {
+            // rename directory
+            const allFiles = await this.$select
+                .select(["path"])
+                .where("path", "like", `${encodePathForSQL(oldPathStr)}/%`)
+                .execute();
+            //? this is not atomic, we just implement it loosely
+            for (const { path: oldPath } of allFiles) {
+                const newPath = oldPath.replace(oldPathStr, newPathStr);
+                await this.$update
+                    .set({ path: newPath, modified_at: Date.now() })
+                    .where("path", "=", oldPath)
+                    .execute();
+            }
+        }
     }
 
     async rmdir(path: PathLike, options?: { recursive?: boolean }): Promise<void> {

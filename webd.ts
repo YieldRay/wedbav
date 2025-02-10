@@ -183,7 +183,6 @@ export async function abstractWebd(
             }
             const destination = getPathnameFromURL(headers["destination"]);
             try {
-                // TODO: support move dir
                 await fs.rename(pathname, destination);
                 return { status: 200 };
             } catch (e) {
