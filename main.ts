@@ -6,9 +6,10 @@ import { type WebdOptions } from "./webd.ts";
 
 const url = process.env["LIBSQL_URL"] || "file:local.db";
 const authToken = process.env["AUTH_TOKEN"];
+const table = process.env["WEBD_TABLE"];
 const port = Number(process.env["PORT"] || 3000);
 
-const sqliteFs = new SqliteFs(new LibsqlDialect({ url, authToken }));
+const sqliteFs = new SqliteFs(new LibsqlDialect({ url, authToken }), table);
 const options: WebdOptions = { browser: process.env["WEBD_BROWSER"] as any };
 
 if (typeof Deno === "object") {

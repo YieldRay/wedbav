@@ -48,10 +48,10 @@ export async function abstractWebd(
         return {
             status: 200,
             headers: {
-                Allow: "PROPFIND, MOVE, DELETE, GET, PUT",
+                Allow: "PROPFIND, MOVE, DELETE, GET, PUT, MKCOL",
                 DAV: "1",
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "PROPFIND, MOVE, DELETE, GET, PUT",
+                "Access-Control-Allow-Methods": "PROPFIND, MOVE, DELETE, GET, PUT, MKCOL",
             },
         };
     }
@@ -222,7 +222,7 @@ export async function abstractWebd(
         case "PROPATCH": {
             return {
                 status: 405,
-                headers: { Allow: "PROPFIND, PUT, GET" },
+                headers: { Allow: "PROPFIND, MOVE, DELETE, GET, PUT, MKCOL" },
                 body: "PROPATCH is not implemented",
             };
         }
@@ -234,7 +234,7 @@ export async function abstractWebd(
 
     return {
         status: 405,
-        headers: { Allow: "PROPFIND, PUT, GET" },
+        headers: { Allow: "PROPFIND, MOVE, DELETE, GET, PUT, MKCOL" },
         body: "Method Not Allowed",
     };
 }
