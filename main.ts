@@ -13,9 +13,9 @@ const sqliteFs = new SqliteFs(new LibsqlDialect({ url, authToken }), table);
 const options: WebdOptions = { browser: process.env["WEBD_BROWSER"] as any };
 
 if (typeof Deno === "object") {
-    const handler = createServeHandler(sqliteFs, options);
-    Deno.serve({ handler, port });
+  const handler = createServeHandler(sqliteFs, options);
+  Deno.serve({ handler, port });
 } else {
-    console.log(`Listening on http://localhost:${port}`);
-    createNodeServer(sqliteFs, options).listen(port);
+  console.log(`Listening on http://localhost:${port}`);
+  createNodeServer(sqliteFs, options).listen(port);
 }

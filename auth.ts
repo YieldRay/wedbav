@@ -22,22 +22,22 @@ const USER_PASS_REGEXP = /^([^:]*):(.*)$/;
  *})
  */
 export function parseBasicAuth(authorization: string) {
-    const match = CREDENTIALS_REGEXP.exec(authorization);
-    if (!match) {
-        return undefined;
-    }
-    let userPass: RegExpExecArray | null = null;
-    try {
-        userPass = USER_PASS_REGEXP.exec(utf8Decoder.decode(decodeBase64(match[1])));
-    } catch {}
-    if (!userPass) {
-        return undefined;
-    }
-    return { username: userPass[1], password: userPass[2] };
+  const match = CREDENTIALS_REGEXP.exec(authorization);
+  if (!match) {
+    return undefined;
+  }
+  let userPass: RegExpExecArray | null = null;
+  try {
+    userPass = USER_PASS_REGEXP.exec(utf8Decoder.decode(decodeBase64(match[1])));
+  } catch {}
+  if (!userPass) {
+    return undefined;
+  }
+  return { username: userPass[1], password: userPass[2] };
 }
 
 export function buildBasicAuth(user: string, pass: string) {
-    return `Basic ${encodeBase64(utf8Encoder.encode(`${user}:${pass}`))}`;
+  return `Basic ${encodeBase64(utf8Encoder.encode(`${user}:${pass}`))}`;
 }
 
 const BEARER_REGEXP = /^Bearer +([A-Za-z0-9\-._~+/]+=*)$/;
@@ -46,14 +46,14 @@ const BEARER_REGEXP = /^Bearer +([A-Za-z0-9\-._~+/]+=*)$/;
  * @ref https://datatracker.ietf.org/doc/html/rfc6750
  */
 export function parseBearerAuth(authorization: string) {
-    const match = BEARER_REGEXP.exec(authorization);
-    if (match) {
-        return match[1];
-    } else {
-        return undefined;
-    }
+  const match = BEARER_REGEXP.exec(authorization);
+  if (match) {
+    return match[1];
+  } else {
+    return undefined;
+  }
 }
 
 export function buildBearerAuth(bearer: string) {
-    return `Bearer ${bearer}`;
+  return `Bearer ${bearer}`;
 }
