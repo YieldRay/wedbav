@@ -1,8 +1,9 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
+import { styleText } from "node:util";
 import { lookup } from "mrmime";
 import { parseBasicAuth } from "./auth.ts";
-import { type FsSubset, ETAG, normalizePathLike, removeSuffixSlash } from "./fs.ts";
+import { type FsSubset, ETAG, normalizePathLike, removeSuffixSlash, VFSError } from "./fs.ts";
 import { getPathnameFromURL } from "./http.ts";
 import { html } from "./html.ts";
 import type { Readable } from "node:stream";
@@ -44,7 +45,7 @@ export async function abstractWebd(
   { auth = getAuthDefault(), browser = "enabled" }: WebdOptions = {}
 ): Promise<AbstractServer["response"]> {
   const { pathname, headers, method, body } = request;
-  console.log(`${new Date().toLocaleString()} ${method} ${pathname}`);
+  console.log(`${styleText(["bold"], new Date().toLocaleString())} ${styleText(["blue"], method)} ${pathname}`);
   if (method === "OPTIONS") {
     return {
       status: 200,
@@ -59,9 +60,22 @@ export async function abstractWebd(
 
   if (browser !== "disabled" && headers["user-agent"]?.startsWith("Mozilla/")) {
     const p = pathname.endsWith("/") ? `${pathname}/index.html` : pathname;
-    const stat = await fs.stat(p);
-    if (!stat.isFile()) {
-      if (browser !== "list") return { status: 404, body: "Not Found" };
+    // browser can only be "enabled" or "list"
+    let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
+    try {
+      stat = await fs.stat(p);
+    } catch (err) {
+      if (err instanceof VFSError) {
+        // when err is VFSError, it means the file or directory does not exist
+      } else throw err;
+    }
+
+    if (!stat?.isFile()) {
+      if (browser !== "list")
+        // when browser is "enabled", we return 404 if the file does not exist
+        return { status: 404, body: "Not Found" };
+
+      // here browser is "list" and the file does not exist, we return an index of the directory
       const files = await fs.readdir(pathname, { withFileTypes: true });
       if (files.length === 0)
         return {

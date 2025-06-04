@@ -50,7 +50,7 @@ export interface FsSubset {
   createReadStream(path: PathLike): Readable;
 }
 
-class VFSError extends Error {
+export class VFSError extends Error {
   constructor(
     message: string,
     {
@@ -148,10 +148,11 @@ class VDirent implements Dirent {
   }
 }
 
-export class SqliteFs implements FsSubset {
+export class KyselyFs implements FsSubset {
   /** DO NOT use it directly, use $xxx */
-  private _tableName: string;
-  private _db: Kysely<Database>;
+  private readonly _tableName: string;
+  private readonly _db: Kysely<Database>;
+  private readonly _dbType: "sqlite" | "mysql" | "pq";
   private get $insert() {
     return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
   }
@@ -165,8 +166,18 @@ export class SqliteFs implements FsSubset {
     return this._db.updateTable(this._tableName as DEFAULT_TABLE_NAME);
   }
 
-  constructor(dialect: Dialect, tableName = DEFAULT_TABLE_NAME) {
+  constructor(
+    dialect: Dialect,
+    options: {
+      /** @default DEFAULT_TABLE_NAME */
+      tableName?: string;
+      /** @default "sqlite" */
+      dbType?: "sqlite" | "mysql" | "pq";
+    }
+  ) {
+    const { tableName = DEFAULT_TABLE_NAME, dbType = "sqlite" } = options;
     this._tableName = tableName;
+    this._dbType = dbType;
     const db = new Kysely<Database>({ dialect });
     this._db = db;
 
@@ -179,7 +190,7 @@ export class SqliteFs implements FsSubset {
       .addColumn("modified_at", "integer", (col) => col.notNull())
       .addColumn("size", "integer", (col) => col.notNull())
       .addColumn("etag", "char(1024)", (col) => col.notNull())
-      .addColumn("content", "blob")
+      .addColumn("content", dbType === "pq" ? "bytea" : "blob")
       .addColumn("meta", "text")
       .execute();
   }
@@ -198,9 +209,9 @@ export class SqliteFs implements FsSubset {
 
     // check for directory
     const dir = await this.$select
-      .select([
-        sql<number>`MIN(created_at)`.as("created_at"),
-        sql<number>`MAX(modified_at)`.as("modified_at"),
+      .select(({ fn }) => [
+        fn.min("created_at").as("created_at"),
+        fn.max("modified_at").as("modified_at"),
         sql<number>`0`.as("size"),
       ])
       .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
@@ -495,7 +506,10 @@ export class SqliteFs implements FsSubset {
 
     const stream = new Readable({
       async read(size) {
-        const part = await select(sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content"))
+        const part = await select(
+          //! check compatibility with database dialects here
+          sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content")
+        )
           .where("path", "=", filePath)
           .executeTakeFirst();
 
@@ -527,8 +541,11 @@ export function normalizePathLike(path: PathLike): string {
   return removeSuffixSlash(pathStr);
 }
 
+// special character \%_ that need to be escaped in SQL LIKE queries
+const sqlWildcardChars = new RegExp(String.raw`[\%_]`, "g");
 function encodePathForSQL(pathStr: string) {
-  return pathStr.replace(/[\\%_]/g, "\\$&");
+  // append '\' before each wildcard character
+  return pathStr.replace(sqlWildcardChars, String.raw`\$&`);
 }
 
 export async function createEtag(content: Uint8Array) {
