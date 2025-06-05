@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
 
-const DEFAULT_TABLE_NAME = "filesystem";
+const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
 
 interface Database {
@@ -507,7 +507,7 @@ export class KyselyFs implements FsSubset {
     const stream = new Readable({
       async read(size) {
         const part = await select(
-          //! check compatibility with database dialects here
+          //! substr is supported by SQLite, MySQL, and PostgreSQL
           sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content")
         )
           .where("path", "=", filePath)

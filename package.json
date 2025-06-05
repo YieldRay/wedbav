@@ -3,7 +3,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
-    "dev:deno": "deno run -A --watch main.ts"
+    "dev:deno": "deno run -A --watch main.ts",
+    "dev:bun": "bun --watch main.ts"
   },
   "dependencies": {
     "@libsql/kysely-libsql": "^0.4.1",
@@ -11,7 +12,7 @@
     "mrmime": "^2.0.1"
   },
   "devDependencies": {
-    "@types/node": "^22.15.23"
+    "@types/node": "^22.15.29"
   },
-  "packageManager": "pnpm@10.11.0"
+  "packageManager": "pnpm@10.11.1"
 }

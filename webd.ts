@@ -6,6 +6,7 @@ import { parseBasicAuth } from "./auth.ts";
 import { type FsSubset, ETAG, normalizePathLike, removeSuffixSlash, VFSError } from "./fs.ts";
 import { getPathnameFromURL } from "./http.ts";
 import { html } from "./html.ts";
+import { username, password } from "./main.ts"; // Import username and password from main.ts
 import type { Readable } from "node:stream";
 
 type Nullable<T> = T | null | undefined;
@@ -32,8 +33,6 @@ export interface WebdOptions {
 }
 
 function getAuthDefault() {
-  const username = process.env["WEBD_USERNAME"];
-  const password = process.env["WEBD_PASSWORD"];
   if (username && password) {
     return (un: string, pw: string) => un === username && pw === password;
   }
