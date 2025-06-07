@@ -1,13 +1,14 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import { styleText } from "node:util";
-import { lookup } from "mrmime";
-import { parseBasicAuth } from "./auth.ts";
-import { type FsSubset, ETAG, normalizePathLike, removeSuffixSlash, VFSError } from "./fs.ts";
-import { getPathnameFromURL } from "./http.ts";
-import { html } from "./html.ts";
-import { username, password } from "./main.ts"; // Import username and password from main.ts
 import type { Readable } from "node:stream";
+import { lookup } from "mrmime";
+import { username, password } from "../main.ts"; // Import username and password from main.ts
+import { type FsSubset, ETAG, VFSError } from "./abstract.ts";
+import { normalizePathLike, removeSuffixSlash } from "./fs.ts";
+import { getPathnameFromURL } from "./http.ts";
+import { parseBasicAuth } from "./auth.ts";
+import { html } from "./html.ts";
 
 type Nullable<T> = T | null | undefined;
 
@@ -58,11 +59,14 @@ export async function abstractWebd(
   }
 
   if (browser !== "disabled" && headers["user-agent"]?.startsWith("Mozilla/")) {
-    const p = pathname.endsWith("/") ? `${pathname}/index.html` : pathname;
+    let filepath = pathname;
+    if (pathname === "/") filepath = "/index.html";
+    else if (pathname.endsWith("/")) filepath += "index.html";
+
     // browser can only be "enabled" or "list"
     let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
     try {
-      stat = await fs.stat(p);
+      stat = await fs.stat(filepath);
     } catch (err) {
       if (err instanceof VFSError) {
         // when err is VFSError, it means the file or directory does not exist
@@ -114,6 +118,7 @@ export async function abstractWebd(
                 </body></html>`,
       };
     }
+
     if (Reflect.has(headers, "if-none-match")) {
       if (headers["if-none-match"] === (stat as any)[ETAG]) {
         return { status: 304 };
@@ -128,14 +133,14 @@ export async function abstractWebd(
       }
     }
 
-    const { body } = await readBufferOrStream(fs, pathname);
+    const { body } = await readBufferOrStream(fs, filepath);
     return {
       status: 200,
       headers: {
         etag: (stat as any)[ETAG],
         "last-modified": stat.mtime.toUTCString(),
         "content-length": stat.size.toString(),
-        "content-type": lookup(p) || "application/octet-stream",
+        "content-type": lookup(filepath) || "application/octet-stream",
       },
       body,
     };

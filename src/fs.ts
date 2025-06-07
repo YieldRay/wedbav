@@ -1,9 +1,11 @@
 import { type Dialect, Kysely, sql } from "kysely";
 import { Buffer } from "node:buffer";
 import { Stats, Dirent, type PathLike } from "node:fs";
+import { styleText } from "node:util";
 import { Readable } from "node:stream";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
+import { FULL_PATH, VDirent, VFSError, VStats, type FsSubset } from "./abstract.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
@@ -12,7 +14,7 @@ interface Database {
   [DEFAULT_TABLE_NAME]: FilesystemTable;
 }
 
-interface FilesystemTable {
+export interface FilesystemTable {
   path: string;
   created_at: number;
   modified_at: number;
@@ -22,137 +24,11 @@ interface FilesystemTable {
   meta: string | null;
 }
 
-export interface FsSubset {
-  access(path: PathLike): Promise<void>;
-  stat(path: PathLike): Promise<Stats>;
-  copyFile(src: PathLike, dest: PathLike, mode?: number): Promise<void>;
-  rename(oldPath: PathLike, newPath: PathLike): Promise<void>;
-  rmdir(path: PathLike, options?: { recursive?: boolean | undefined }): Promise<void>;
-  rm(path: PathLike, options?: { recursive?: boolean | undefined; force?: boolean | undefined }): Promise<void>;
-  mkdir(path: PathLike, options?: { recursive?: boolean | undefined } | null): Promise<string | undefined>;
-  readdir(
-    path: PathLike,
-    options?: {
-      withFileTypes?: false;
-      recursive?: boolean;
-    } | null
-  ): Promise<string[]>;
-  readdir(
-    path: PathLike,
-    options: {
-      withFileTypes: true;
-      recursive?: boolean;
-    }
-  ): Promise<Dirent[]>;
-  writeFile(file: PathLike, data: string | Uint8Array): Promise<void>;
-  readFile(path: PathLike): Promise<Buffer>;
-  readFile(path: PathLike, options: { encoding: string }): Promise<string>;
-  createReadStream(path: PathLike): Readable;
-}
-
-export class VFSError extends Error {
-  constructor(
-    message: string,
-    {
-      code,
-      syscall,
-      path,
-    }: {
-      errno?: number;
-      code: string;
-      syscall: string;
-      path: PathLike;
-    }
-  ) {
-    super(`${code}: ${message}, ${syscall} '${path}'`);
-    this.name = "VFSError";
-  }
-}
-
-const FULL_PATH = Symbol("full_path");
-const IS_DIRECTORY = Symbol("is_directory");
-export const ETAG = Symbol("etag");
-
-class VStats implements Stats {
-  constructor(
-    {
-      created_at,
-      modified_at,
-      size,
-      etag,
-    }: Pick<FilesystemTable, "created_at" | "modified_at" | "size"> & { etag?: string },
-    fullPath: string,
-    isDirectory = false
-  ) {
-    (this as any)[IS_DIRECTORY] = isDirectory;
-    (this as any)[FULL_PATH] = fullPath;
-    (this as any)[ETAG] = etag;
-    this.mode = isDirectory ? 16877 : 33206;
-    this.birthtimeMs = created_at;
-    this.atimeMs = modified_at;
-    this.mtimeMs = modified_at;
-    this.ctimeMs = created_at;
-    this.atime = new Date(modified_at);
-    this.mtime = new Date(modified_at);
-    this.ctime = new Date(created_at);
-    this.birthtime = new Date(created_at);
-    this.size = size;
-  }
-  isFile = (): boolean => !(this as any)[IS_DIRECTORY];
-  isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
-  isBlockDevice = (): boolean => false;
-  isCharacterDevice = (): boolean => false;
-  isSymbolicLink = (): boolean => false;
-  isFIFO = (): boolean => false;
-  isSocket = (): boolean => false;
-  dev: number = 0;
-  ino: number = 0;
-  mode: number = 0;
-  nlink: number = 1;
-  uid: number = 0;
-  gid: number = 0;
-  rdev: number = 0;
-  size: number = 0;
-  blksize: number = 0;
-  blocks: number = 0;
-  atimeMs: number;
-  mtimeMs: number;
-  ctimeMs: number;
-  birthtimeMs: number;
-  atime: Date;
-  mtime: Date;
-  ctime: Date;
-  birthtime: Date;
-}
-
-class VDirent implements Dirent {
-  name: string;
-  parentPath: string;
-  constructor(prefix: string, fullPath: string, isDirectory = false) {
-    (this as any)[FULL_PATH] = fullPath;
-    (this as any)[IS_DIRECTORY] = isDirectory;
-    const filePath = fullPath.replace(prefix, "");
-    const segments = filePath.split("/");
-    this.name = segments.pop()!;
-    this.parentPath = segments.join("/") || "";
-  }
-  isFile = (): boolean => !(this as any)[IS_DIRECTORY];
-  isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
-  isBlockDevice = (): boolean => false;
-  isCharacterDevice = (): boolean => false;
-  isSymbolicLink = (): boolean => false;
-  isFIFO = (): boolean => false;
-  isSocket = (): boolean => false;
-  get path() {
-    return this.parentPath;
-  }
-}
-
 export class KyselyFs implements FsSubset {
   /** DO NOT use it directly, use $xxx */
   private readonly _tableName: string;
   private readonly _db: Kysely<Database>;
-  private readonly _dbType: "sqlite" | "mysql" | "pq";
+  private readonly _dbType: "sqlite" | "mysql" | "pg";
   private get $insert() {
     return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
   }
@@ -172,29 +48,41 @@ export class KyselyFs implements FsSubset {
       /** @default DEFAULT_TABLE_NAME */
       tableName?: string;
       /** @default "sqlite" */
-      dbType?: "sqlite" | "mysql" | "pq";
+      dbType?: "sqlite" | "mysql" | "pg";
     }
   ) {
     const { tableName = DEFAULT_TABLE_NAME, dbType = "sqlite" } = options;
     this._tableName = tableName;
     this._dbType = dbType;
-    const db = new Kysely<Database>({ dialect });
+    const db = new Kysely<Database>({
+      dialect,
+      log({ level, query, queryDurationMillis, ...event }) {
+        if (level === "error") {
+          console.error(styleText(["red"], `[${level}]`), `in ${queryDurationMillis}ms`);
+        } else {
+          console.log(styleText(["green"], `[${level}]`), `in ${queryDurationMillis}ms`);
+        }
+        console.log(styleText(["magenta"], query.sql), query.parameters.length ? query.parameters : "");
+        if (level === "error") console.error(event);
+        console.log();
+      },
+    });
     this._db = db;
 
     // create the table if not exists
     db.schema
       .createTable(tableName)
       .ifNotExists()
-      .addColumn("path", "char(4096)", (col) => col.primaryKey())
-      .addColumn("created_at", "integer", (col) => col.notNull())
-      .addColumn("modified_at", "integer", (col) => col.notNull())
+      .addColumn("path", "varchar(4096)", (col) => col.primaryKey())
+      .addColumn("created_at", "bigint", (col) => col.notNull())
+      .addColumn("modified_at", "bigint", (col) => col.notNull())
       .addColumn("size", "integer", (col) => col.notNull())
-      .addColumn("etag", "char(1024)", (col) => col.notNull())
-      .addColumn("content", dbType === "pq" ? "bytea" : "blob")
+      .addColumn("etag", "varchar(1024)", (col) => col.notNull())
+      .addColumn("content", this._dbType === "pg" ? "bytea" : "blob")
       .addColumn("meta", "text")
-      .execute();
+      .execute(); 
   }
-
+ 
   async access(path: PathLike): Promise<void> {
     await this.stat(path);
   }
@@ -453,9 +341,11 @@ export class KyselyFs implements FsSubset {
   async writeFile(file: PathLike, data: string | Uint8Array): Promise<void> {
     const filePath = normalizePathLike(file);
     const now = Date.now();
-    const content = typeof data === "string" ? new TextEncoder().encode(data) : data;
+    const content = Buffer.from(data);
     const size = content.byteLength;
     const etag = await createEtag(content);
+
+    console.log({ content, size, etag });
 
     // we may need to check if the directory exists
     // but as we don't store directories explicitly, we can skip it for now
@@ -495,6 +385,7 @@ export class KyselyFs implements FsSubset {
       });
     }
 
+    tryFixFileDotContent(file);
     if (encoding) return new TextDecoder(encoding).decode(file.content);
     return Buffer.from(file.content);
   }
@@ -516,6 +407,7 @@ export class KyselyFs implements FsSubset {
         if (!part || !part.content) {
           this.push(null);
         } else {
+          tryFixFileDotContent(part);
           this.push(Buffer.from(part.content));
           offset += size;
         }
@@ -554,4 +446,25 @@ export async function createEtag(content: Uint8Array) {
   hash.update(content);
   const etag = `"${hash.digest("hex")}"`;
   return etag;
+}
+
+/**
+ * this fn try to fix some broken kysely driver, in these drivers, file.content is a hex string
+ * and it decodes it to a JSON object like: { "type": "Buffer", "data": [1, 2, 3] }
+ * where the data is a Uint8Array.
+ */
+function tryFixFileDotContent(file: { content: Uint8Array<ArrayBufferLike> | null }) {
+  if (typeof file.content === "string") {
+    let content = file.content as string;
+    if (content.startsWith("\\x")) {
+      content = Buffer.from(content.slice(2), "hex").toString("utf-8");
+      try {
+        const json = JSON.parse(content);
+        console.log(json);
+        if (json.type === "Buffer" && Array.isArray(json.data)) {
+          file.content = new Uint8Array(json.data);
+        }
+      } catch {}
+    }
+  }
 }

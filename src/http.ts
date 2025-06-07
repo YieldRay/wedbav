@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
 import { abstractWebd, type WebdOptions } from "./webd.ts";
-import { type FsSubset } from "./fs.ts";
+import { type FsSubset } from "./abstract.ts";
 import { Readable } from "node:stream";
 
 export function createNodeServer(fs: FsSubset, options?: WebdOptions) {

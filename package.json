@@ -3,16 +3,19 @@
   "type": "module",
   "scripts": {
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
+    "dev:xata": "node --experimental-transform-types --env-file=.env --watch main-xata.ts",
     "dev:deno": "deno run -A --watch main.ts",
     "dev:bun": "bun --watch main.ts"
   },
   "dependencies": {
-    "@libsql/kysely-libsql": "^0.4.1",
+    "mrmime": "^2.0.1",
     "kysely": "^0.28.2",
-    "mrmime": "^2.0.1"
+    "@libsql/kysely-libsql": "^0.4.1",
+    "@xata.io/client": "^0.30.1",
+    "@xata.io/kysely": "^0.2.1"
   },
   "devDependencies": {
-    "@types/node": "^22.15.29"
+    "@types/node": "^22.15.30"
   },
   "packageManager": "pnpm@10.11.1"
 }
