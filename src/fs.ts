@@ -385,10 +385,6 @@ export class KyselyFs implements FsSubset {
       });
     }
 
-    console.log("readfile");
-    console.log({ file });
-
-    tryFixFileDotContent(file);
     if (encoding) return new TextDecoder(encoding).decode(file.content);
     return Buffer.from(file.content);
   }
@@ -410,7 +406,6 @@ export class KyselyFs implements FsSubset {
         if (!part || !part.content) {
           this.push(null);
         } else {
-          tryFixFileDotContent(part);
           this.push(Buffer.from(part.content));
           offset += size;
         }
@@ -449,25 +444,4 @@ export async function createEtag(content: Uint8Array) {
   hash.update(content);
   const etag = `"${hash.digest("hex")}"`;
   return etag;
-}
-
-/**
- * this fn try to fix some broken kysely driver, in these drivers, file.content is a hex string
- * and it decodes it to a JSON object like: { "type": "Buffer", "data": [1, 2, 3] }
- * where the data is a Uint8Array.
- */
-function tryFixFileDotContent(file: { content: Uint8Array<ArrayBufferLike> | null }) {
-  if (typeof file.content === "string") {
-    let content = file.content as string;
-    if (content.startsWith("\\x")) {
-      content = Buffer.from(content.slice(2), "hex").toString("utf-8");
-      try {
-        const json = JSON.parse(content);
-        console.log(json);
-        if (json.type === "Buffer" && Array.isArray(json.data)) {
-          file.content = new Uint8Array(json.data);
-        }
-      } catch {}
-    }
-  }
 }

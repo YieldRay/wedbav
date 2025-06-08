@@ -10,13 +10,13 @@
   "dependencies": {
     "@libsql/kysely-libsql": "^0.4.1",
     "kysely": "^0.28.2",
+    "kysely-postgres-js": "^2.0.0",
     "mrmime": "^2.0.1",
-    "pg": "^8.16.0"
+    "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@types/bun": "^1.2.15",
-    "@types/node": "^22.15.30",
-    "@types/pg": "^8.15.4"
+    "@types/node": "^22.15.30"
   },
   "packageManager": "pnpm@10.11.1"
 }
