@@ -3,7 +3,7 @@ import process from "node:process";
 import { styleText } from "node:util";
 import type { Readable } from "node:stream";
 import { lookup } from "mrmime";
-import { username, password } from "../main.ts"; // Import username and password from main.ts
+import { username, password } from "./index.ts"; // Import username and password from main.ts
 import { type FsSubset, ETAG, VFSError } from "./abstract.ts";
 import { normalizePathLike, removeSuffixSlash } from "./fs.ts";
 import { getPathnameFromURL } from "./http.ts";

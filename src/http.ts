@@ -54,7 +54,7 @@ export function createServeHandler(fs: FsSubset, options?: WebdOptions) {
       options
     );
 
-    return new Response(responseBody instanceof Readable ? Readable.toWeb(responseBody) : responseBody, {
+    return new Response((responseBody instanceof Readable ? Readable.toWeb(responseBody) : responseBody) as BodyInit, {
       status,
       statusText,
       headers: new Headers(headers),

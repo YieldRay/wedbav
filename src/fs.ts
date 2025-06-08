@@ -1,10 +1,10 @@
-import { type Dialect, Kysely, sql } from "kysely";
 import { Buffer } from "node:buffer";
 import { Stats, Dirent, type PathLike } from "node:fs";
 import { styleText } from "node:util";
 import { Readable } from "node:stream";
 import { normalize } from "node:path/posix";
 import { createHash } from "node:crypto";
+import { type Dialect, Kysely, sql } from "kysely";
 import { FULL_PATH, VDirent, VFSError, VStats, type FsSubset } from "./abstract.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
@@ -80,9 +80,9 @@ export class KyselyFs implements FsSubset {
       .addColumn("etag", "varchar(1024)", (col) => col.notNull())
       .addColumn("content", this._dbType === "pg" ? "bytea" : "blob")
       .addColumn("meta", "text")
-      .execute(); 
+      .execute();
   }
- 
+
   async access(path: PathLike): Promise<void> {
     await this.stat(path);
   }
@@ -384,6 +384,9 @@ export class KyselyFs implements FsSubset {
         path,
       });
     }
+
+    console.log("readfile");
+    console.log({ file });
 
     tryFixFileDotContent(file);
     if (encoding) return new TextDecoder(encoding).decode(file.content);
