@@ -5,7 +5,8 @@
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
     "dev:deno": "deno run -A --watch main.ts",
     "dev:bun": "bun --watch main.ts",
-    "build:deno": "bun build.ts"
+    "build": "bun build.ts",
+    "start": "node --experimental-transform-types main.ts"
   },
   "dependencies": {
     "@libsql/kysely-libsql": "^0.4.1",
@@ -18,5 +19,5 @@
     "@types/bun": "^1.2.15",
     "@types/node": "^22.15.30"
   },
-  "packageManager": "pnpm@10.11.1"
+  "packageManager": "pnpm@10.12.1"
 }

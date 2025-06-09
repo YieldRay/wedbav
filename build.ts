@@ -1,9 +1,27 @@
 import fs from "node:fs/promises";
 import { isBuiltin } from "node:module";
-import { argv } from "node:process";
+import { styleText, parseArgs } from "node:util";
 
-const entrypoints = argv.slice(2);
-if (entrypoints.length === 0) entrypoints.push("./main.ts");
+const consoleSuccess = (text: string) => console.log(styleText(["green"], text));
+const consoleError = (text: string) => console.error(styleText(["red"], text));
+const consoleInfo = (text: string) => console.info(styleText(["blue"], text));
+
+const { values, positionals } = parseArgs({
+  options: {
+    npm: {
+      type: "boolean",
+      description: "Prefix npm imports with 'npm:'",
+    },
+    docker: {
+      type: "boolean",
+      description: "Build and push a Docker image to ttl.sh",
+    },
+  },
+  allowPositionals: true,
+  strict: true,
+});
+
+const entrypoints = positionals.length > 0 ? positionals : ["./main.ts"];
 
 const { outputs, success, logs } = await Bun.build({
   entrypoints,
@@ -13,13 +31,20 @@ const { outputs, success, logs } = await Bun.build({
   env: "inline",
 });
 
-if (success) {
-  console.log("Build succeeded!");
-  console.log("Outputs:", outputs);
-  outputs.forEach(async (output) => {
+if (!success) {
+  consoleError("Build failed!");
+  console.error("Logs:", logs);
+  process.exit(1);
+}
+
+consoleSuccess("Build succeeded!");
+console.log("Outputs:", outputs);
+if (values.npm) {
+  for (const output of outputs) {
+    consoleInfo(`Processing output: ${output.path}`);
     const content = await output.text();
     // Replace `import "...";` with `import "npm:...";`
-    fs.writeFile(
+    await fs.writeFile(
       output.path,
       content.replace(/^(import\s+[^"']+)(["'][^"']*["'])/gm, (match, p1, p2) => {
         const name = p2.slice(1, -1);
@@ -35,9 +60,14 @@ if (success) {
         return `${p1}"npm:${name}"`;
       })
     );
-  });
-} else {
-  console.error("Build failed!");
-  console.error("Logs:", logs);
-  process.exit(1);
+    consoleInfo(`Processed output: ${output.path}`);
+  }
+}
+
+import { $ } from "bun";
+if (values.docker) {
+  const IMAGE_NAME = crypto.randomUUID();
+  consoleInfo(`Building Docker image with name: ${IMAGE_NAME}`);
+  await $`docker build -t ttl.sh/${IMAGE_NAME} .`;
+  await $`docker push ttl.sh/${IMAGE_NAME}`;
 }
