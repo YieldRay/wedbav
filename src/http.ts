@@ -1,11 +1,14 @@
-import { createServer } from "node:http";
+import type http from "node:http";
 import { Buffer } from "node:buffer";
 import { abstractWebd, type WebdOptions } from "./webd.ts";
 import { type FsSubset } from "./abstract.ts";
 import { Readable } from "node:stream";
 
-export function createNodeServer(fs: FsSubset, options?: WebdOptions) {
-  return createServer(async (req, res) => {
+/** NodeJS http server middleware type */
+type NodeHandler = http.RequestListener<typeof http.IncomingMessage, typeof http.ServerResponse>;
+
+export function createNodeHandler(fs: FsSubset, options?: WebdOptions): NodeHandler {
+  return async (req, res) => {
     // convert node readable stream to Uint8Array
     const chunks: Uint8Array[] = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -33,10 +36,10 @@ export function createNodeServer(fs: FsSubset, options?: WebdOptions) {
     } else {
       res.end(responseBody);
     }
-  });
+  };
 }
 
-export function createServeHandler(fs: FsSubset, options?: WebdOptions) {
+export function createFetchHandler(fs: FsSubset, options?: WebdOptions) {
   return async (req: Request) => {
     const {
       status,

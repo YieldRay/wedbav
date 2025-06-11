@@ -16,6 +16,10 @@ const { values, positionals } = parseArgs({
       type: "boolean",
       description: "Build and push a Docker image to ttl.sh",
     },
+    env: {
+      type: "string",
+      description: "Controls how environment variables are handled during bundling.",
+    },
   },
   allowPositionals: true,
   strict: true,
@@ -28,7 +32,7 @@ const { outputs, success, logs } = await Bun.build({
   outdir: "./dist",
   target: "node",
   packages: "external",
-  env: "inline",
+  env: values.env as "inline" | "disable" | `${string}*` | undefined,
 });
 
 if (!success) {
@@ -63,6 +67,8 @@ if (values.npm) {
     consoleInfo(`Processed output: ${output.path}`);
   }
 }
+
+fs.copyFile("./package.json", "./dist/package.json");
 
 import { $ } from "bun";
 if (values.docker) {
