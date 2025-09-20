@@ -5,10 +5,11 @@ import type { Readable } from "node:stream";
 import { lookup } from "mrmime";
 import { username, password } from "./index.ts"; // Import username and password from main.ts
 import { type FsSubset, ETAG, VFSError } from "./abstract.ts";
-import { normalizePathLike, removeSuffixSlash } from "./fs.ts";
+import { normalizePathLike, removeSuffixSlash } from "./utils.ts";
 import { getPathnameFromURL } from "./http.ts";
 import { parseBasicAuth } from "./auth.ts";
-import { html } from "./html.ts";
+import { html, raw } from "./html.ts";
+import path from "node:path/posix";
 
 type Nullable<T> = T | null | undefined;
 
@@ -40,10 +41,23 @@ function getAuthDefault() {
 }
 
 export async function abstractWebd(
-  fs: FsSubset,
+  fsSubset: FsSubset,
   request: AbstractServer["request"],
   { auth = getAuthDefault(), browser = "enabled" }: WebdOptions = {}
 ): Promise<AbstractServer["response"]> {
+  let fs = new Proxy(fsSubset, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value === "function") {
+        return function (this: any, ...args: any[]) {
+          console.log(`fs.${String(prop)}`, ...args);
+          return value.apply(this, args);
+        };
+      }
+      return value;
+    },
+  });
+
   const { pathname, headers, method, body } = request;
   console.log(`${styleText(["bold"], new Date().toLocaleString())} ${styleText(["blue"], method)} ${pathname}`);
   if (method === "OPTIONS") {
@@ -100,22 +114,31 @@ export async function abstractWebd(
       return {
         status: 200,
         headers: { "Content-Type": "text/html; charset=UTF-8" },
-        body: html`<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Index of ${dir}</title></head>
-                <body><h1>Index of ${dir}</h1>
-                    <ul>
-                    ${files
-                      .filter((file) => file.isDirectory())
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((file) => `<li><a href="./${file.name}/">${file.name}/</a></li>`)
-                      .join("\n")}
-                    </ul>
-                    ${files
-                      .filter((file) => file.isFile())
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((file) => `<li><a href="./${file.name}">${file.name}</a></li>`)
-                      .join("\n")}
-                    </ul>
-                </body></html>`,
+        body: html`<html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Index of ${dir}</title>
+          </head>
+          <body>
+            <h1>Index of ${dir}</h1>
+            <ul>
+              ${raw(
+                files
+                  .filter((file) => file.isDirectory())
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((file) => html`<li><a href="./${file.name}/">${file.name}/</a></li>`)
+                  .join("\n")
+              )}
+              ${raw(
+                files
+                  .filter((file) => file.isFile())
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((file) => html`<li><a href="./${file.name}">${file.name}</a></li>`)
+                  .join("\n")
+              )}
+            </ul>
+          </body>
+        </html>`,
       };
     }
 
@@ -169,7 +192,7 @@ export async function abstractWebd(
             isdir: boolean;
           }> = [];
           for (const file of files) {
-            const path = normalizePathLike(pathname) + "/" + file.name;
+            const path = removeSuffixSlash(normalizePathLike(pathname)) + "/" + file.name;
             const stat = await fs.stat(path);
             dav.push({
               path,
@@ -178,22 +201,24 @@ export async function abstractWebd(
               isdir: file.isDirectory(),
             });
           }
+          // console.log(davXML(pathname, dav));
           return {
             status: 207,
             statusText: "Multi-Status",
-            body: davXML(pathname, dav),
+            body: davXML(stat.mtime, pathname, dav),
             headers: { "Content-Type": "text/xml; charset=UTF-8" },
           };
         } else {
+          // if pathname is a file, return its own info
           return {
             status: 207,
             statusText: "Multi-Status",
-            body: davXML(pathname),
+            body: davXML(stat.mtime, pathname, true),
             headers: { "Content-Type": "text/xml; charset=UTF-8" },
           };
         }
       } catch (e) {
-        return { status: 404, body: String(e) };
+        return { status: 500, body: String(e) };
       }
     }
     case "MOVE": {
@@ -202,10 +227,16 @@ export async function abstractWebd(
       }
       const destination = getPathnameFromURL(headers["destination"]);
       try {
-        await fs.rename(pathname, destination);
+        const stat = await fs.stat(pathname);
+        if (stat.isDirectory()) {
+          await moveDir(fs, pathname, destination);
+        } else {
+          await fs.rename(pathname, destination);
+        }
         return { status: 200 };
       } catch (e) {
-        return { status: 404, body: String(e) };
+        console.error(e);
+        return { status: 500, body: String(e) };
       }
     }
     case "DELETE": {
@@ -234,7 +265,7 @@ export async function abstractWebd(
         await fs.writeFile(pathname, body ? (Buffer.from(body) as unknown as Uint8Array) : new Uint8Array(0));
         return { status: 201 };
       } catch (e) {
-        return { status: 404, body: String(e) };
+        return { status: 500, body: String(e) };
       }
     }
     case "PROPATCH": {
@@ -245,7 +276,7 @@ export async function abstractWebd(
       };
     }
     case "MKCOL": {
-      await fs.writeFile(pathname + ".DIR_STRUT_FILE", new Uint8Array(0));
+      await fs.mkdir(pathname, { recursive: true });
       return { status: 201, statusText: "Created" };
     }
   }
@@ -280,29 +311,24 @@ async function readBufferOrStream(fs: FsSubset, pathname: string, stat?: { size:
 }
 
 function davXML(
+  date: Date,
   dir: string,
-  files: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> = []
+  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = []
 ) {
+  const files = filesOrThisIsFile === true ? [] : filesOrThisIsFile;
+  const isDir = filesOrThisIsFile !== true;
+
   return /* xml */ `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <d:multistatus xmlns:d="DAV:">
-<d:response>
-    <d:href>${encodeURI(dir)}</d:href>
-    <d:propstat>
-        <d:prop>
-            <d:getcontenttype>httpd/unix-directory</d:getcontenttype>
-            <d:displayname>${getNameFromRawPath(dir)}</d:displayname>
-            <d:resourcetype>
-                <d:collection/>
-            </d:resourcetype>
-            <d:getcontentlength>0</d:getcontentlength>
-        </d:prop>
-        <d:status>HTTP/1.1 200 OK</d:status>
-    </d:propstat>
-</d:response>
+${davXMLSingleResponse(dir, 0, date, isDir)}
 ${files
-  .map(
-    ({ path, contentlength, lastmodified, isdir }) => /*xml*/ `
-<d:response>
+  .map(({ path, contentlength, lastmodified, isdir }) => davXMLSingleResponse(path, contentlength, lastmodified, isdir))
+  .join("\n")}    
+</d:multistatus>`;
+}
+
+function davXMLSingleResponse(path: string, contentlength: number, lastmodified: Date, isdir: boolean) {
+  return /* xml */ `<d:response>
     <d:href>${encodeURI(path + (isdir ? "/" : ""))}</d:href>
     <d:propstat>
         <d:prop>
@@ -310,17 +336,46 @@ ${files
             <d:getcontentlength>${contentlength}</d:getcontentlength>
             <d:getlastmodified>${lastmodified.toUTCString()}</d:getlastmodified>
             <d:resourcetype>${isdir ? "<d:collection/>" : ""}</d:resourcetype>${
-      isdir
-        ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
-        : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
-    }
+    isdir
+      ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
+      : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
+  }
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
-</d:response>`
-  )
-  .join("\n")}    
-</d:multistatus>`;
+</d:response>`;
+}
+
+async function moveDir(fs: FsSubset, src: string, dest: string) {
+  let destExists = false;
+  try {
+    const stat = await fs.stat(dest);
+    destExists = stat.isDirectory();
+  } catch (e) {
+    destExists = false;
+  }
+
+  if (!destExists) {
+    await fs.rename(src, dest);
+    return;
+  }
+
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      await moveDir(fs, srcPath, destPath);
+      await fs.rmdir(srcPath, { recursive: true });
+    } else {
+      try {
+        await fs.unlink(destPath);
+      } catch (e) {}
+      await fs.rename(srcPath, destPath);
+    }
+  }
+  await fs.rmdir(src, { recursive: true });
 }
 
 function displayVersion() {

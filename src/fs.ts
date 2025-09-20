@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer";
+import { dirname, relative } from "node:path/posix";
 import { Stats, Dirent, type PathLike } from "node:fs";
 import { styleText } from "node:util";
 import { Readable } from "node:stream";
-import { normalize } from "node:path/posix";
-import { createHash } from "node:crypto";
 import { type Dialect, Kysely, sql } from "kysely";
 import { FULL_PATH, VDirent, VFSError, VStats, type FsSubset } from "./abstract.ts";
+import { createEtag, normalizePathLike, removeSuffixSlash, encodePathForSQL } from "./utils.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
@@ -15,6 +15,9 @@ interface Database {
 }
 
 export interface FilesystemTable {
+  // if path ends with /, it must be a explicit directory
+  // if there is an explicit directory, its path must end with /
+  // implicit directories DO NOT have rows
   path: string;
   created_at: number;
   modified_at: number;
@@ -83,30 +86,86 @@ export class KyselyFs implements FsSubset {
       .execute();
   }
 
-  async access(path: PathLike): Promise<void> {
-    await this.stat(path);
-  }
-
-  async stat(path: PathLike): Promise<Stats> {
-    const pathStr = normalizePathLike(path);
+  private async _getFileStats(fileKey: string) {
+    console.assert(!fileKey.endsWith("/"), "fileKey must not end with /");
     const file = await this.$select
       .select(["created_at", "modified_at", "size", "etag"])
-      .where("path", "=", pathStr)
+      .where("path", "=", fileKey)
       .executeTakeFirst();
-    if (file) return new VStats(file, pathStr);
-
-    // check for directory
-    const dir = await this.$select
+    if (file) return new VStats(file, fileKey);
+  }
+  private async _getExplicitDirStats(dirKey: string) {
+    console.assert(dirKey.endsWith("/"), "dirKey must end with /");
+    const dir = await this.$select.select(["created_at", "modified_at"]).where("path", "=", dirKey).executeTakeFirst();
+    if (dir) return new VStats({ created_at: dir.created_at, modified_at: dir.modified_at, size: 0 }, dirKey, true);
+  }
+  private async _getImplicitDirStats(dirKey: string) {
+    console.assert(dirKey.endsWith("/"), "dirKey must end with /");
+    const dirAgg = await this.$select
       .select(({ fn }) => [
         fn.min("created_at").as("created_at"),
         fn.max("modified_at").as("modified_at"),
         sql<number>`0`.as("size"),
       ])
-      .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
+      .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+      .where((eb) => eb("path", "!=", dirKey))
       .executeTakeFirst();
 
-    // create_at is null when there are no files in the directory
-    if (dir && dir.created_at) return new VStats(dir, pathStr, true);
+    if (
+      // created_at is null when there are no files in the directory
+      dirAgg?.created_at
+    )
+      return new VStats(dirAgg, dirKey, true);
+  }
+
+  private async _getDirStats(dirKey: string) {
+    if (dirKey === "") return this._getImplicitDirStats("/");
+
+    console.assert(dirKey.endsWith("/"), "dirKey must end with /");
+    // First, check explicit directory row
+    const explicitDir = await this._getExplicitDirStats(dirKey);
+    if (explicitDir) return explicitDir;
+    // Then, check implicit directory from children
+    const implicitDir = await this._getImplicitDirStats(dirKey);
+    if (implicitDir) return implicitDir;
+  }
+
+  async access(path: PathLike): Promise<void> {
+    await this.stat(path);
+  }
+
+  async stat(path: PathLike): Promise<Stats> {
+    const key = normalizePathLike(path);
+    const isDir = key.endsWith("/");
+
+    // key is a dir key
+    if (isDir) {
+      const dirKey = removeSuffixSlash(key) + "/";
+      const dir = await this._getDirStats(dirKey);
+      if (dir) return dir;
+
+      // although it's a dir key, we still need to check if it's a file for compatibility
+      // const fileKey = removeSuffixSlash(key);
+      // const file = await this._getFileStats(fileKey);
+      // if (file) return file;
+
+      throw new VFSError("no such file or directory", {
+        syscall: "stat",
+        code: "ENOENT",
+        path,
+      });
+    }
+
+    // key is a file key for now, but we still need to check if it's a dir!
+
+    // try file first
+    const file = await this._getFileStats(key);
+    if (file) return file;
+
+    // then try directory
+    const dirKey = key + "/";
+    const dir = await this._getDirStats(dirKey);
+    if (dir) return dir;
 
     throw new VFSError("no such file or directory", {
       syscall: "stat",
@@ -116,10 +175,24 @@ export class KyselyFs implements FsSubset {
   }
 
   async copyFile(src: PathLike, dest: PathLike): Promise<void> {
-    const srcPath = normalizePathLike(src);
-    const destPath = normalizePathLike(dest);
-    const file = await this.$select.selectAll().where("path", "=", srcPath).executeTakeFirst();
+    const srcKey = normalizePathLike(src);
+    if (srcKey.endsWith("/")) {
+      throw new VFSError("Cannot copy directory to file", { syscall: "copyfile", code: "EINVAL", path: dest });
+    }
 
+    const destKey = normalizePathLike(dest);
+    if (destKey.endsWith("/")) {
+      throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
+    }
+
+    // we should check if dest is a directory
+    const destDirKey = destKey + "/";
+    if (await this._getDirStats(destDirKey)) {
+      throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
+    }
+
+    // now we can safely copy the file
+    const file = await this.$select.selectAll().where("path", "=", srcKey).executeTakeFirst();
     if (!file) {
       throw new VFSError("no such file or directory", {
         syscall: "copyfile",
@@ -131,7 +204,7 @@ export class KyselyFs implements FsSubset {
     const now = Date.now();
     await this.$insert
       .values({
-        path: destPath,
+        path: destKey,
         created_at: now,
         modified_at: now,
         size: file.size,
@@ -143,139 +216,175 @@ export class KyselyFs implements FsSubset {
           modified_at: now,
           size: file.size,
           content: file.content,
+          etag: file.etag,
         })
       )
       .execute();
   }
 
+  /**
+   * Asynchronously rename file at oldPath to the pathname provided as newPath. In the case that newPath already exists, it will be overwritten.
+   * If there is a directory at newPath, an error will be raised instead.
+   */
   async rename(oldPath: PathLike, newPath: PathLike): Promise<void> {
-    const oldPathStr = normalizePathLike(oldPath);
-    const newPathStr = normalizePathLike(newPath);
+    const oldKey = normalizePathLike(oldPath);
+    const isDir = oldKey.endsWith("/");
+    const newKey = normalizePathLike(newPath);
 
-    // check if oldPathStr exists
-    const stat = await this.stat(oldPath);
+    if (isDir) {
+      const oldDirKey = oldKey;
+      const newDirKey = removeSuffixSlash(newKey) + "/";
+      const explicitDir = await this._getExplicitDirStats(oldKey);
+      if (explicitDir) {
+        if (await this._getExplicitDirStats(newDirKey)) {
+          throw new VFSError("file exists", { syscall: "rename", code: "EEXIST", path: newPath });
+        }
+        await this.$update.set({ path: newDirKey, modified_at: Date.now() }).where("path", "=", oldKey).execute();
+      }
+      // implicit directories cannot be renamed, we should rename all children instead
+      const allFiles = await this.$select
+        .select(["path"])
+        .where("path", "like", `${encodePathForSQL(oldDirKey)}%`)
+        .execute();
+      //? this is not atomic, we just implement it loosely
+      for (const { path: oldPath } of allFiles) {
+        const newPath = oldPath.replace(oldDirKey, newDirKey);
+        await this.$update.set({ path: newPath, modified_at: Date.now() }).where("path", "=", oldPath).execute();
+      }
+      return;
+    }
 
-    //  check if newPathStr exists
-    try {
-      await this.stat(newPath);
+    const oldFileKey = oldKey;
+    const newFileKey = newKey;
+    const file = await this._getFileStats(oldFileKey);
+    if (!file) {
+      throw new VFSError("no such file or directory", {
+        syscall: "rename",
+        code: "ENOENT",
+        path: oldFileKey,
+      });
+    }
+
+    // check if newKey is a directory
+    const newDirKey = newFileKey + "/";
+    if (await this._getDirStats(newDirKey)) {
+      throw new VFSError("illegal operation on a directory", { syscall: "rename", code: "EISDIR", path: newPath });
+    }
+    // check if newFileKey is an existing file
+    const existingFile = await this._getFileStats(newFileKey);
+    if (existingFile) {
       throw new VFSError("file already exists", {
         syscall: "rename",
         code: "EEXIST",
         path: newPath,
       });
-    } catch (e) {
-      if (e instanceof VFSError) {
-        // file does not exist, continue
-      } else {
-        throw e;
-      }
     }
 
-    if (stat.isFile()) {
-      // rename file
-      await this.$update.set({ path: newPathStr, modified_at: Date.now() }).where("path", "=", oldPathStr).execute();
-    } else {
-      // rename directory
-      const allFiles = await this.$select
-        .select(["path"])
-        .where("path", "like", `${encodePathForSQL(oldPathStr)}/%`)
-        .execute();
-      //? this is not atomic, we just implement it loosely
-      for (const { path: oldPath } of allFiles) {
-        const newPath = oldPath.replace(oldPathStr, newPathStr);
-        await this.$update.set({ path: newPath, modified_at: Date.now() }).where("path", "=", oldPath).execute();
-      }
-    }
+    await this.$update.set({ path: newFileKey, modified_at: Date.now() }).where("path", "=", oldFileKey).execute();
   }
 
   async rmdir(path: PathLike, options?: { recursive?: boolean }): Promise<void> {
-    const pathStr = normalizePathLike(path);
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
+    const dirKey = fileKey + "/";
     const recursive = options?.recursive ?? false;
 
-    if (recursive) {
-      await this.$delete.where("path", "like", `${encodePathForSQL(pathStr)}/%`).execute();
-      return;
+    if (await this._getFileStats(fileKey)) {
+      throw new VFSError("not a directory", { syscall: "rmdir", code: "ENOTDIR", path });
     }
 
-    // check if the directory is empty
-    const hasChildren = await this.$select
-      .select("path")
-      .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
-      .executeTakeFirst();
-
-    if (hasChildren) {
-      throw new VFSError("directory not empty", {
-        syscall: "rmdir",
-        code: "ENOTEMPTY",
-        path,
-      });
+    if (!recursive) {
+      // when not recursive, we should check if there are any children
+      const hasChildren = await this.$select
+        .select("path")
+        .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+        .executeTakeFirst();
+      if (hasChildren) {
+        throw new VFSError("directory not empty", { syscall: "rmdir", code: "ENOTEMPTY", path });
+      }
     }
 
-    // check if the path is a file
-    const fileExists = await this.$select.select("path").where("path", "=", pathStr).executeTakeFirst();
+    // remove the explicit dir
+    await this.$delete.where("path", "=", dirKey).execute();
 
-    if (fileExists) {
-      throw new VFSError("Not a directory", {
-        syscall: "rmdir",
-        code: "ENOTDIR",
-        path,
-      });
+    // remove the implicit dir
+    await this.$delete.where("path", "like", `${encodePathForSQL(dirKey)}%`).execute();
+  }
+
+  async unlink(path: PathLike): Promise<void> {
+    const key = normalizePathLike(path);
+    if (key.endsWith("/")) {
+      throw new VFSError("illegal operation on a directory", { syscall: "unlink", code: "EISDIR", path });
     }
-
-    // check if the directory exists
-    const dirExists = await this.$select
-      .select("path")
-      .where("path", "like", `${encodePathForSQL(pathStr)}/%`)
-      .executeTakeFirst();
-
-    if (!dirExists) {
-      throw new VFSError("no such file or directory", {
-        syscall: "rmdir",
-        code: "ENOENT",
-        path,
-      });
-    }
+    await this.$delete.where("path", "=", key).execute();
   }
 
   async rm(path: PathLike, options?: { recursive?: boolean | undefined; force?: boolean | undefined }): Promise<void> {
-    const pathStr = normalizePathLike(path);
     const recursive = options?.recursive ?? false;
     const force = options?.force ?? false;
 
+    const key = normalizePathLike(path);
+    const fileKey = removeSuffixSlash(key);
+    const dirKey = fileKey + "/";
+
     try {
-      // remove the file
-      await this.$delete.where("path", "=", pathStr).execute();
-      if (recursive) {
-        // remove all dirs
-        await this.$delete.where("path", "like", `${encodePathForSQL(pathStr)}/%`).execute();
+      const stat = await this.stat(path);
+      if (stat.isDirectory()) {
+        return this.rmdir(dirKey, { recursive });
       }
-    } catch (e) {
-      if (!force) {
-        throw e;
-      }
+
+      // it's a file
+      await this.unlink(fileKey);
+    } catch {
+      if (force) return;
+      throw new VFSError("no such file or directory", { syscall: "rm", code: "ENOENT", path });
     }
   }
 
+  /**
+   * @returns Upon success, fulfills with undefined if recursive is false, or the first directory path created if recursive is true.
+   */
   async mkdir(path: PathLike, options?: { recursive?: boolean | undefined } | null): Promise<string | undefined> {
-    const pathStr = normalizePathLike(path);
-    const recursive = options?.recursive ?? false; // unused
+    const recursive = options?.recursive ?? false;
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
+    const dirKey = fileKey + "/";
 
-    // since we don't store directories explicitly, we just need to check if the path exists as a prefix
-    const exists = await this.$select
-      .select("path")
-      .where("path", "=", pathStr)
-      .where((eb) => eb("path", "=", pathStr).or("path", "like", `${encodePathForSQL(pathStr)}/%`))
-      .executeTakeFirst();
-
-    if (exists) {
-      throw new VFSError("file already exists", {
-        syscall: "mkdir",
-        code: "EEXIST",
-        path,
-      });
+    if (await this._getFileStats(fileKey)) {
+      throw new VFSError("file exists", { syscall: "mkdir", code: "EEXIST", path });
     }
 
-    return undefined; // no path created, as we don't store directories
+    if (await this._getDirStats(dirKey)) {
+      throw new VFSError("file exists", { syscall: "mkdir", code: "EEXIST", path });
+    }
+
+    if (!recursive) {
+      // check if parent dir exists
+      const parentDirKey = dirname(dirKey) + "/";
+      if (
+        parentDirKey !== "./" &&
+        // ./ means root dir, which always exists
+        !(await this._getDirStats(parentDirKey))
+      ) {
+        throw new VFSError("no such file or directory", { syscall: "mkdir", code: "ENOENT", path });
+      }
+    }
+
+    const now = Date.now();
+    await this.$insert
+      .values({
+        path: dirKey,
+        created_at: now,
+        modified_at: now,
+        size: 0,
+        etag: "",
+        content: null,
+        meta: null,
+      })
+      .execute();
+
+    if (recursive) {
+      return dirKey; // dummy
+    }
+    return undefined;
   }
 
   async readdir(path: PathLike, options?: { withFileTypes?: false; recursive?: boolean }): Promise<string[]>;
@@ -287,72 +396,93 @@ export class KyselyFs implements FsSubset {
     const withFileTypes = options?.withFileTypes || false;
     const recursive = options?.recursive || false;
 
-    const pathStr = normalizePathLike(path);
-    const currentDir = pathStr + "/";
+    const dirKey = removeSuffixSlash(normalizePathLike(path)) + "/";
+
     const allFiles = await this.$select
       .select(["path", "created_at", "modified_at", "size"])
-      .where("path", "like", `${encodePathForSQL(currentDir)}%`)
+      .where("path", "like", `${encodePathForSQL(dirKey)}%`)
       .execute(); // recursive
 
-    const files: typeof allFiles = [];
-    const dirs = new Set<string>();
+    // Collect full paths for files and directories to return.
+    const fileSet = new Set<string>();
+    const dirSet = new Set<string>();
 
-    for (const file of allFiles) {
-      const relativePath = file.path.replace(currentDir, "");
-      if (relativePath.includes("/")) {
-        if (recursive) {
-          // add all if recursive
-          let d = relativePath;
-          while (d.includes("/")) {
-            // remove last segment
-            d = d.split("/").slice(0, -1).join("/");
-            dirs.add(currentDir + d);
-          }
-          files.push(file);
-        } else {
-          // only add top level
-          const slashCount = (relativePath.match(/\//g) || []).length;
-          if (slashCount === 0) {
-            // no slash, must be a file
-            files.push(file);
-          } else if (slashCount) {
-            // dir1/dir2/dir3 -> dir1
-            dirs.add(relativePath.replace(/\/.+$/, ""));
+    for (const entry of allFiles) {
+      const fullPath = entry.path;
+      if (fullPath === dirKey) continue; // skip the directory itself if explicitly stored
+
+      const isDir = fullPath.endsWith("/");
+      const rel = relative(dirKey, fullPath);
+
+      if (recursive) {
+        // Return every entry under dirKey
+        if (isDir) dirSet.add(removeSuffixSlash(fullPath));
+        else fileSet.add(fullPath);
+
+        // Add all ancestor directories by scanning the relative path
+        const relNoSlash = removeSuffixSlash(rel);
+        if (relNoSlash) {
+          let idx = -1;
+          while ((idx = relNoSlash.indexOf("/", idx + 1)) !== -1) {
+            const dirRel = relNoSlash.slice(0, idx);
+            if (dirRel) dirSet.add(dirKey + dirRel);
           }
         }
+        continue;
+      }
+
+      // Non-recursive: only immediate children
+      if (isDir) {
+        // Immediate child directory name is the first segment
+        const first = rel.split("/")[0] || "";
+        if (first) dirSet.add(removeSuffixSlash(dirKey + first));
       } else {
-        // flat file, just add
-        files.push(file);
+        if (rel.includes("/")) {
+          // Nested file -> synthesize top-level dir entry
+          const first = rel.split("/")[0];
+          if (first) dirSet.add(removeSuffixSlash(dirKey + first));
+        } else {
+          // Immediate file
+          fileSet.add(dirKey + rel);
+        }
       }
     }
 
-    const result = [
-      ...files.map((f) => new VDirent(currentDir, f.path)),
-      ...Array.from(dirs).map((d) => new VDirent(currentDir, d, true)),
+    // Build VDirent list (order not guaranteed; sort for stability)
+    const dirents: Dirent[] = [
+      ...Array.from(dirSet)
+        .sort()
+        .map((d) => new VDirent(dirKey, d, true)),
+      ...Array.from(fileSet)
+        .sort()
+        .map((f) => new VDirent(dirKey, f)),
     ];
 
     if (withFileTypes) {
-      return result;
-    } else {
-      return result.map((d) => (d as any)[FULL_PATH].replace(currentDir, ""));
+      return dirents;
     }
+    // Return names relative to dirKey (may include subpaths if recursive)
+    const result = dirents.map((d) => (d as any)[FULL_PATH].replace(dirKey, "") as string);
+    return result;
   }
 
   async writeFile(file: PathLike, data: string | Uint8Array): Promise<void> {
-    const filePath = normalizePathLike(file);
+    const fileKey = removeSuffixSlash(normalizePathLike(file));
+
+    // check if the explicit dir exists
+    const dirKey = fileKey + "/";
+    if (await this._getExplicitDirStats(dirKey)) {
+      throw new VFSError("illegal operation on a directory", { syscall: "writeFile", code: "EISDIR", path: file });
+    }
+
     const now = Date.now();
     const content = Buffer.from(data);
     const size = content.byteLength;
     const etag = await createEtag(content);
 
-    console.log({ content, size, etag });
-
-    // we may need to check if the directory exists
-    // but as we don't store directories explicitly, we can skip it for now
-
     await this.$insert
       .values({
-        path: filePath,
+        path: fileKey,
         created_at: now,
         modified_at: now,
         size: size,
@@ -373,9 +503,9 @@ export class KyselyFs implements FsSubset {
   async readFile(path: PathLike): Promise<Buffer>;
   async readFile(path: PathLike, options: { encoding: string }): Promise<string>;
   async readFile(path: PathLike, options?: { encoding?: string }): Promise<Buffer | string> {
-    const filePath = normalizePathLike(path);
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
     const encoding = options?.encoding;
-    const file = await this.$select.select("content").where("path", "=", filePath).executeTakeFirst();
+    const file = await this.$select.select("content").where("path", "=", fileKey).executeTakeFirst();
 
     if (!file || !file.content) {
       throw new VFSError("no such file or directory", {
@@ -390,7 +520,7 @@ export class KyselyFs implements FsSubset {
   }
 
   createReadStream(path: PathLike): Readable {
-    const filePath = normalizePathLike(path);
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
     const select = this.$select.select.bind(this.$select);
     let offset = 1; // SQLite BLOBs are 1-indexed
 
@@ -400,7 +530,7 @@ export class KyselyFs implements FsSubset {
           //! substr is supported by SQLite, MySQL, and PostgreSQL
           sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content")
         )
-          .where("path", "=", filePath)
+          .where("path", "=", fileKey)
           .executeTakeFirst();
 
         if (!part || !part.content) {
@@ -416,32 +546,4 @@ export class KyselyFs implements FsSubset {
 
     return stream;
   }
-}
-
-export function removeSuffixSlash(input: string) {
-  while (input.endsWith("/")) {
-    input = input.replace(/\/$/, "");
-  }
-  return input;
-}
-
-export function normalizePathLike(path: PathLike): string {
-  let pathStr = String(path);
-  pathStr = normalize(pathStr);
-  return removeSuffixSlash(pathStr);
-}
-
-// special character \%_ that need to be escaped in SQL LIKE queries
-const sqlWildcardChars = new RegExp(String.raw`[\%_]`, "g");
-function encodePathForSQL(pathStr: string) {
-  // append '\' before each wildcard character
-  return pathStr.replace(sqlWildcardChars, String.raw`\$&`);
-}
-
-export async function createEtag(content: Uint8Array) {
-  // async for future use
-  const hash = createHash("sha256");
-  hash.update(content);
-  const etag = `"${hash.digest("hex")}"`;
-  return etag;
 }

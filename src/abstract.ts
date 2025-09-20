@@ -9,6 +9,7 @@ export interface FsSubset {
   copyFile(src: PathLike, dest: PathLike, mode?: number): Promise<void>;
   rename(oldPath: PathLike, newPath: PathLike): Promise<void>;
   rmdir(path: PathLike, options?: { recursive?: boolean | undefined }): Promise<void>;
+  unlink(path: PathLike): Promise<void>;
   rm(path: PathLike, options?: { recursive?: boolean | undefined; force?: boolean | undefined }): Promise<void>;
   mkdir(path: PathLike, options?: { recursive?: boolean | undefined } | null): Promise<string | undefined>;
   readdir(
