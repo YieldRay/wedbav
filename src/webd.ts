@@ -218,23 +218,137 @@ export async function abstractWebd(
           };
         }
       } catch (e) {
+        // if the file or directory does not exist, return 404
+        if (e instanceof VFSError) {
+          // if is root directory, return empty list
+          if (pathname === "/") {
+            return {
+              status: 207,
+              statusText: "Multi-Status",
+              body: davXML(new Date(), pathname, []),
+              headers: { "Content-Type": "text/xml; charset=UTF-8" },
+            };
+          }
+          return { status: 404, body: "Not Found" };
+        }
+        console.error(e);
         return { status: 500, body: String(e) };
       }
     }
     case "MOVE": {
       if (!Reflect.has(headers, "destination")) {
-        return { status: 400, body: "Destination header is not provided" };
+        return { status: 400, body: "Bad Request: Destination header is required" };
       }
+
       const destination = getPathnameFromURL(headers["destination"]);
+      const overwrite = headers["overwrite"] !== "F"; // Default is T (true)
+
+      // Prevent self-move
+      if (normalizePathLike(pathname) === normalizePathLike(destination)) {
+        return { status: 403, body: "Forbidden: Cannot move resource to itself" };
+      }
+
+      // Prevent circular moves (moving parent into child)
+      const normalizedSrc = normalizePathLike(pathname);
+      const normalizedDest = normalizePathLike(destination);
+      if (normalizedDest.startsWith(normalizedSrc + "/")) {
+        return { status: 409, body: "Conflict: Cannot move directory into itself" };
+      }
+
       try {
-        const stat = await fs.stat(pathname);
-        if (stat.isDirectory()) {
-          await moveDir(fs, pathname, destination);
-        } else {
-          await fs.rename(pathname, destination);
+        // Check if source exists
+        const srcStat = await fs.stat(pathname);
+
+        // Check destination and handle overwrite logic
+        let destStat: Awaited<ReturnType<typeof fs.stat>> | undefined;
+        let destExists = false;
+        try {
+          destStat = await fs.stat(destination);
+          destExists = true;
+        } catch (error) {
+          if (!(error instanceof VFSError)) {
+            // If it's not a "not found" error, it's a real error
+            throw error;
+          }
+          // Destination doesn't exist, check if parent directory exists
+          const parentDir = path.dirname(destination);
+          try {
+            const parentStat = await fs.stat(parentDir);
+            if (!parentStat.isDirectory()) {
+              return { status: 409, body: "Conflict: Parent is not a directory" };
+            }
+          } catch {
+            return { status: 409, body: "Conflict: Parent directory does not exist" };
+          }
         }
-        return { status: 200 };
+
+        // Handle overwrite header
+        if (destExists && !overwrite) {
+          return { status: 412, body: "Precondition Failed: Destination exists and Overwrite is F" };
+        }
+
+        let finalDestination = destination;
+        let resourceCreated = !destExists;
+
+        if (srcStat.isDirectory()) {
+          // Moving a directory
+          if (destExists && destStat!.isDirectory()) {
+            // Moving into existing directory - move source into destination
+            finalDestination = path.join(destination, path.basename(pathname));
+            resourceCreated = true;
+
+            // Check if final destination exists
+            try {
+              await fs.stat(finalDestination);
+              if (!overwrite) {
+                return { status: 412, body: "Precondition Failed: Final destination exists and Overwrite is F" };
+              }
+              resourceCreated = false;
+            } catch {}
+          }
+
+          if (!resourceCreated) {
+            // Remove destination if it exists and we're overwriting
+            try {
+              await fs.rm(finalDestination, { recursive: true, force: true });
+            } catch {}
+          }
+
+          await moveDir(fs, pathname, finalDestination);
+        } else {
+          // Moving a file
+          if (destExists && destStat!.isDirectory()) {
+            // Moving file into directory
+            finalDestination = path.join(destination, path.basename(pathname));
+            resourceCreated = true;
+
+            // Check if final destination exists
+            try {
+              await fs.stat(finalDestination);
+              if (!overwrite) {
+                return { status: 412, body: "Precondition Failed: Final destination exists and Overwrite is F" };
+              }
+              resourceCreated = false;
+            } catch {}
+          }
+
+          if (!resourceCreated) {
+            // Remove destination if it exists and we're overwriting
+            try {
+              await fs.rm(finalDestination, { recursive: true, force: true });
+            } catch {}
+          }
+
+          await fs.rename(pathname, finalDestination);
+        }
+
+        // Return appropriate status code
+        return { status: resourceCreated ? 201 : 204 };
       } catch (e) {
+        console.error("MOVE error:", e);
+        if (e instanceof VFSError) {
+          return { status: 404, body: "Not Found: Source resource does not exist" };
+        }
         console.error(e);
         return { status: 500, body: String(e) };
       }
@@ -265,6 +379,7 @@ export async function abstractWebd(
         await fs.writeFile(pathname, body ? (Buffer.from(body) as unknown as Uint8Array) : new Uint8Array(0));
         return { status: 201 };
       } catch (e) {
+        console.error(e);
         return { status: 500, body: String(e) };
       }
     }
@@ -347,35 +462,92 @@ function davXMLSingleResponse(path: string, contentlength: number, lastmodified:
 }
 
 async function moveDir(fs: FsSubset, src: string, dest: string) {
-  let destExists = false;
+  const srcBase = removeSuffixSlash(normalizePathLike(src));
+  const destBase = removeSuffixSlash(normalizePathLike(dest));
+
+  // Try atomic rename first (most efficient)
   try {
-    const stat = await fs.stat(dest);
-    destExists = stat.isDirectory();
-  } catch (e) {
-    destExists = false;
+    await fs.rename(srcBase, destBase);
+    return;
+  } catch (error) {
+    // If atomic rename fails, fall back to recursive move
+    // This happens when moving across different filesystems or when destination exists
   }
 
-  if (!destExists) {
-    await fs.rename(src, dest);
+  // Check if destination exists
+  let destStat: Awaited<ReturnType<typeof fs.stat>> | undefined;
+  try {
+    destStat = await fs.stat(destBase);
+  } catch {}
+
+  if (!destStat) {
+    // Destination doesn't exist, but atomic rename failed
+    // This could be cross-filesystem move - do recursive copy+delete
+    await recursiveMoveDir(fs, srcBase, destBase);
     return;
   }
 
+  if (!destStat.isDirectory()) {
+    // Destination exists but is not a directory - this should have been handled by caller
+    throw new Error("Destination exists and is not a directory");
+  }
+
+  // Destination is an existing directory - move contents into it
+  await recursiveMoveDir(fs, srcBase, destBase, true);
+}
+
+async function recursiveMoveDir(fs: FsSubset, src: string, dest: string, mergeIntoExisting = false) {
   const entries = await fs.readdir(src, { withFileTypes: true });
+
+  if (!mergeIntoExisting) {
+    // Create destination directory
+    await fs.mkdir(dest, { recursive: true });
+  }
+
+  // Process all entries
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
 
     if (entry.isDirectory()) {
-      await moveDir(fs, srcPath, destPath);
-      await fs.rmdir(srcPath, { recursive: true });
-    } else {
+      // Try atomic rename for subdirectory first
       try {
-        await fs.unlink(destPath);
-      } catch (e) {}
-      await fs.rename(srcPath, destPath);
+        await fs.rename(srcPath, destPath);
+      } catch {
+        // Fall back to recursive move
+        await recursiveMoveDir(fs, srcPath, destPath);
+        // Clean up source directory after successful move
+        try {
+          await fs.rmdir(srcPath);
+        } catch {
+          // Use recursive remove as fallback
+          await fs.rm(srcPath, { recursive: true, force: true });
+        }
+      }
+    } else {
+      // Move file - remove destination if it exists, then rename
+      try {
+        await fs.rm(destPath, { force: true });
+      } catch {}
+
+      try {
+        await fs.rename(srcPath, destPath);
+      } catch {
+        // If rename fails, try copy+delete (cross-filesystem move)
+        const buffer = await fs.readFile(srcPath);
+        await fs.writeFile(destPath, buffer);
+        await fs.rm(srcPath, { force: true });
+      }
     }
   }
-  await fs.rmdir(src, { recursive: true });
+
+  // Remove source directory after moving all contents
+  try {
+    await fs.rmdir(src);
+  } catch {
+    // Use recursive remove as fallback
+    await fs.rm(src, { recursive: true, force: true });
+  }
 }
 
 function displayVersion() {
