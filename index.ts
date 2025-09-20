@@ -15,7 +15,6 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL_POSTGRES,
 });
 
-
 /** https://vercel.com/guides/connection-pooling-with-functions */
 if (isPg) {
   attachDatabasePool(pool);

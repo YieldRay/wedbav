@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
-    "dev:deno": "deno serve -A --watch --env-file index.ts",
+    "dev:deno": "deno serve -A --watch --env-file=.env index.ts",
     "dev:bun": "bun --watch main.ts",
     "build": "bun build.ts",
     "start": "node --experimental-transform-types main.ts"

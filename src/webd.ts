@@ -38,7 +38,9 @@ function getAuthDefault() {
   const user = username || "";
   const pass = password || "";
   if (pass) {
-    return (un: string, pw: string) => un === user && pw === pass;
+    return (un: string, pw: string) => {
+      return un === user && pw === pass;
+    };
   }
 }
 
