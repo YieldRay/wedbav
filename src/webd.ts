@@ -35,8 +35,10 @@ export interface WebdOptions {
 }
 
 function getAuthDefault() {
-  if (username && password) {
-    return (un: string, pw: string) => un === username && pw === password;
+  const user = username || "";
+  const pass = password || "";
+  if (pass) {
+    return (un: string, pw: string) => un === user && pw === pass;
   }
 }
 
@@ -168,6 +170,8 @@ export async function abstractWebd(
       body,
     };
   }
+
+  console.log("Auth:", auth ? "enabled" : "disabled");
 
   if (auth) {
     const basic = parseBasicAuth(headers["authorization"] || "");

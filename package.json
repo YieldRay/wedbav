@@ -3,21 +3,23 @@
   "type": "module",
   "scripts": {
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
-    "dev:deno": "deno run -A --watch main.ts",
+    "dev:deno": "deno serve -A --watch --env-file index.ts",
     "dev:bun": "bun --watch main.ts",
     "build": "bun build.ts",
     "start": "node --experimental-transform-types main.ts"
   },
   "dependencies": {
     "@libsql/kysely-libsql": "^0.4.1",
-    "kysely": "^0.28.2",
+    "hono": "^4.9.8",
+    "kysely": "^0.28.7",
     "kysely-postgres-js": "^2.0.0",
     "mrmime": "^2.0.1",
     "postgres": "^3.4.7"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.15",
-    "@types/node": "^22.15.31"
+    "@types/bun": "^1.2.22",
+    "@types/node": "^22.18.6",
+    "typescript": "^5.9.2"
   },
-  "packageManager": "pnpm@10.12.1"
+  "packageManager": "pnpm@10.17.0"
 }
