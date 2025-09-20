@@ -1,17 +1,28 @@
 import process from "node:process";
+import { PostgresDialect } from "kysely";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
-import { PostgresJSDialect } from "kysely-postgres-js";
-import postgres from "postgres";
+import { Pool } from "pg";
+import { attachDatabasePool } from "@vercel/functions";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { KyselyFs } from "./src/fs.ts";
 import { createFetchHandler } from "./src/http.ts";
 import { type WebdOptions } from "./src/webd.ts";
 
-const dialect = process.env.DATABASE_URL_POSTGRES
-  ? new PostgresJSDialect({
-      postgres: postgres(process.env.DATABASE_URL_POSTGRES),
-    })
+const isPg = !!process.env.DATABASE_URL_POSTGRES;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL_POSTGRES,
+});
+
+
+/** https://vercel.com/guides/connection-pooling-with-functions */
+if (isPg) {
+  attachDatabasePool(pool);
+}
+
+const dialect = isPg
+  ? new PostgresDialect({ pool })
   : new LibsqlDialect({
       url: process.env.LIBSQL_URL || "file:local.db",
       authToken: process.env.AUTH_TOKEN,
