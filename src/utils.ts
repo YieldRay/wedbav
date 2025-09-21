@@ -2,6 +2,7 @@ import path from "node:path/posix";
 import { createHash } from "node:crypto";
 import type { PathLike } from "node:fs";
 
+
 export async function createEtag(content: Uint8Array) {
   // async for future use
   const hash = createHash("sha256");

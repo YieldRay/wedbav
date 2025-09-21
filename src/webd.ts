@@ -3,11 +3,11 @@ import process from "node:process";
 import { styleText } from "node:util";
 import type { Readable } from "node:stream";
 import { lookup } from "mrmime";
-import { username, password } from "./index.ts"; // Import username and password from main.ts
 import { type FsSubset, ETAG, VFSError } from "./abstract.ts";
 import { normalizePathLike, removeSuffixSlash } from "./utils.ts";
 import { getPathnameFromURL } from "./http.ts";
 import { parseBasicAuth } from "./auth.ts";
+import { username, password } from "./auth.ts";
 import { html, raw } from "./html.ts";
 import path from "node:path/posix";
 
