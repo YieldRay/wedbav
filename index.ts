@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { KyselyFs } from "./src/fs.ts";
 import { createFetchHandler } from "./src/http.ts";
-import { type WebdOptions } from "./src/webd.ts";
+import { type WedbavOptions } from "./src/wedbav.ts";
 
 const isPg = !!process.env.DATABASE_URL_POSTGRES;
 
@@ -32,8 +32,8 @@ const kyselyFs = new KyselyFs(dialect, {
   dbType: "sqlite",
 });
 
-const browser = process.env.WEBD_BROWSER as WebdOptions["browser"];
-const options: WebdOptions = { browser };
+const browser = process.env.WEBD_BROWSER as WedbavOptions["browser"];
+const options: WedbavOptions = { browser };
 
 const app = new Hono();
 app.use(logger());

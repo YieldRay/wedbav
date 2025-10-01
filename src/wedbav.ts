@@ -28,7 +28,7 @@ interface AbstractServer {
   };
 }
 
-export interface WebdOptions {
+export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
   /** @default {"enabled"} */
   browser?: "list" | "enabled" | "disabled";
@@ -44,10 +44,10 @@ function getAuthDefault() {
   }
 }
 
-export async function abstractWebd(
+export async function abstractWedbav(
   fsSubset: FsSubset,
   request: AbstractServer["request"],
-  { auth = getAuthDefault(), browser = "enabled" }: WebdOptions = {}
+  { auth = getAuthDefault(), browser = "enabled" }: WedbavOptions = {}
 ): Promise<AbstractServer["response"]> {
   let fs = new Proxy(fsSubset, {
     get(target, prop, receiver) {

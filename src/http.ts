@@ -1,13 +1,13 @@
 import type http from "node:http";
 import { Buffer } from "node:buffer";
-import { abstractWebd, type WebdOptions } from "./webd.ts";
+import { abstractWedbav, type WedbavOptions } from "./wedbav.ts";
 import { type FsSubset } from "./abstract.ts";
 import { Readable } from "node:stream";
 
 /** NodeJS http server middleware type */
 type NodeHandler = http.RequestListener<typeof http.IncomingMessage, typeof http.ServerResponse>;
 
-export function createNodeHandler(fs: FsSubset, options?: WebdOptions): NodeHandler {
+export function createNodeHandler(fs: FsSubset, options?: WedbavOptions): NodeHandler {
   return async (req, res) => {
     // convert node readable stream to Uint8Array
     const chunks: Uint8Array[] = [];
@@ -19,7 +19,7 @@ export function createNodeHandler(fs: FsSubset, options?: WebdOptions): NodeHand
       statusText,
       headers,
       body: responseBody,
-    } = await abstractWebd(
+    } = await abstractWedbav(
       fs,
       {
         pathname: decodeURISafe(req.url!),
@@ -39,14 +39,14 @@ export function createNodeHandler(fs: FsSubset, options?: WebdOptions): NodeHand
   };
 }
 
-export function createFetchHandler(fs: FsSubset, options?: WebdOptions) {
+export function createFetchHandler(fs: FsSubset, options?: WedbavOptions) {
   return async (req: Request) => {
     const {
       status,
       statusText,
       headers,
       body: responseBody,
-    } = await abstractWebd(
+    } = await abstractWedbav(
       fs,
       {
         pathname: getPathnameFromURL(req.url),

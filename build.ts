@@ -25,7 +25,7 @@ const { values, positionals } = parseArgs({
   strict: true,
 });
 
-const entrypoints = positionals.length > 0 ? positionals : ["./main.ts"];
+const entrypoints = positionals.length > 0 ? positionals : ["./main-sqlite.ts"];
 
 const { outputs, success, logs } = await Bun.build({
   entrypoints,

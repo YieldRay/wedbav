@@ -1,6 +1,6 @@
-# webd-sqlite
+# WEDBAV
 
-A WebDAV implementation.
+WEDBAV is a WebDAV implementation based on database.
 
 Goal of this project is to create a filesystem based on a database with a single table, which store all files and directories, no need to explicit create a directory, similar to S3.
 
@@ -27,9 +27,9 @@ LIBSQL_URL=libsql://xxx
 AUTH_TOKEN=eyJhb
 
 # optional
-WEBD_USERNAME=admin
-WEBD_PASSWORD=123456
-WEBD_BROWSER=list
+WEDBAV_USERNAME=admin
+WEDBAV_PASSWORD=123456
+WEDBAV_BROWSER=list
 ```
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YieldRay/webd-sqlite)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YieldRay/wedbav)

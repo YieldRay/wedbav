@@ -1,8 +1,8 @@
 import { decodeBase64, encodeBase64, utf8Decoder, utf8Encoder } from "./base64.ts";
 import process from "node:process";
 
-export const username = process.env.WEBD_USERNAME;
-export const password = process.env.WEBD_PASSWORD;
+export const username = process.env.WEDBAV_USERNAME;
+export const password = process.env.WEDBAV_PASSWORD;
 
 const CREDENTIALS_REGEXP = /^ *(?:[Bb][Aa][Ss][Ii][Cc]) +([A-Za-z0-9._~+/-]+=*) *$/;
 const USER_PASS_REGEXP = /^([^:]*):(.*)$/;

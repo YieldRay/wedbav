@@ -4,16 +4,16 @@ import type { Dialect } from "kysely";
 
 import { KyselyFs } from "./fs.ts";
 import { createFetchHandler, createNodeHandler } from "./http.ts";
-import { type WebdOptions } from "./webd.ts";
+import { type WedbavOptions } from "./wedbav.ts";
 
 // load all env
 const port = Number(process.env.PORT || 3000);
-const tableName = process.env.WEBD_TABLE;
-const browser = process.env.WEBD_BROWSER as WebdOptions["browser"];
+const tableName = process.env.WEDBAV_TABLE;
+const browser = process.env.WEDBAV_BROWSER as WedbavOptions["browser"];
 
 export default async function startServer(dialect: Dialect, dbType?: "sqlite" | "mysql" | "pg") {
   const kyselyFs = new KyselyFs(dialect, { tableName, dbType });
-  const options: WebdOptions = { browser };
+  const options: WedbavOptions = { browser };
 
   // start the server based on the runtime
   //@ts-ignore

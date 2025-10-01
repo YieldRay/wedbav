@@ -12,7 +12,7 @@
     "@libsql/kysely-libsql": "^0.4.1",
     "@types/pg": "^8.15.5",
     "@vercel/functions": "^3.1.0",
-    "hono": "^4.9.8",
+    "hono": "^4.9.9",
     "kysely": "^0.28.7",
     "kysely-postgres-js": "^2.0.0",
     "mrmime": "^2.0.1",
@@ -20,9 +20,9 @@
     "postgres": "^3.4.7"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.22",
-    "@types/node": "^22.18.6",
-    "typescript": "^5.9.2"
+    "@types/bun": "^1.2.23",
+    "@types/node": "^22.18.8",
+    "typescript": "^5.9.3"
   },
-  "packageManager": "pnpm@10.17.0"
+  "packageManager": "pnpm@10.17.1"
 }
