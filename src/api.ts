@@ -31,12 +31,14 @@ const DefaultSuccess = z.object({
   success: z.boolean(),
 });
 
-export function createHonoAPI(
+export function createHonoAPI<Prefix extends string>(
   fs: FsSubset,
   options: {
     readOnly?: boolean;
+    prefix?: Prefix;
   } = {}
 ) {
+  const PREFIX = options.prefix ?? "/fs";
   const readOnly = options.readOnly ?? false;
 
   const api = new Hono();
@@ -419,14 +421,14 @@ export function createHonoAPI(
     getPath: (req) => {
       const url = new URL(req.url);
       if (req.headers.get("accept")?.startsWith("application/json")) {
-        return "/fs" + url.pathname + url.search;
+        return PREFIX + url.pathname + url.search;
       } else {
-        return "/fs/UNREACHABLE";
+        return PREFIX + "/UNREACHABLE";
       }
     },
   });
 
-  app.route("/fs", api);
+  app.route(PREFIX, api);
 
   return app;
 }

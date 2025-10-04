@@ -172,8 +172,14 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     );
   }
 
-  // api routes, will be prefixed with /fs internally
-  app.route("/", createHonoAPI(fs));
+  // api routes
+  app.route(
+    "/",
+    createHonoAPI(fs, {
+      prefix: "/api" as const,
+      readOnly: false,
+    })
+  );
 
   app.on("PROPFIND", "/*", async (c) => {
     const { pathname } = c.var;
