@@ -7,7 +7,7 @@ import { isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { getPathnameFromURL } from "./utils.ts";
 import { createHonoAPI } from "./api.ts";
-import type { Bindings } from "./env.ts";
+import { env, type Bindings } from "./env.ts";
 import { Hono, type Context } from "hono";
 import { html, raw } from "hono/html";
 import { basicAuth } from "hono/basic-auth";
@@ -228,29 +228,29 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   });
 
   // basic auth
-  if (options.auth) {
-    app.use(
-      "/*",
-      basicAuth({
-        verifyUser: (
-          username,
-          password,
-          c: Context<{
-            Variables: Variables;
-            Bindings: Bindings;
-          }>
-        ) => {
-          if (typeof options.auth === "function") {
-            return options.auth(username, password);
-          }
-          if (!c.env.WEDBAV_USERNAME) {
-            return password === c.env.WEDBAV_PASSWORD;
-          }
-          return username === c.env.WEDBAV_USERNAME && password === c.env.WEDBAV_PASSWORD;
-        },
-      })
-    );
-  }
+  app.use(
+    "/*",
+    basicAuth({
+      verifyUser: (
+        username,
+        password,
+        c: Context<{
+          Variables: Variables;
+          // although we have type the Bindings, but since it only works in Cloudflare Workers,
+          // we actually DO NOT use it
+          Bindings: Bindings;
+        }>
+      ) => {
+        if (typeof options.auth === "function") {
+          return options.auth(username, password);
+        }
+        if (!env.WEDBAV_USERNAME) {
+          return password === env.WEDBAV_PASSWORD;
+        }
+        return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
+      },
+    })
+  );
 
   // api routes
   app.route("/", api);
