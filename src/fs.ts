@@ -449,20 +449,20 @@ export class KyselyFs implements FsSubset {
     }
 
     // Build VDirent list (order not guaranteed; sort for stability)
-    const dirents: Dirent[] = [
+    const dirents: VDirent[] = [
       ...Array.from(dirSet)
         .sort()
         .map((d) => new VDirent(dirKey, d, true)),
       ...Array.from(fileSet)
         .sort()
         .map((f) => new VDirent(dirKey, f)),
-    ];
+    ] satisfies Dirent[];
 
-    if (withFileTypes) {
+    if (withFileTypes) {5
       return dirents;
     }
     // Return names relative to dirKey (may include subpaths if recursive)
-    const result = dirents.map((d) => (d as any)[FULL_PATH].replace(dirKey, "") as string);
+    const result = dirents.map((d) => d[FULL_PATH].replace(dirKey, "") as string);
     return result;
   }
 

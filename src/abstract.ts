@@ -28,11 +28,10 @@ export interface FsSubset {
   ): Promise<Dirent[]>;
   writeFile(file: PathLike, data: string | Uint8Array): Promise<void>;
   readFile(path: PathLike): Promise<Buffer>;
-  readFile(path: PathLike, options: { encoding: string }): Promise<string>;
   createReadStream(path: PathLike): Readable;
 }
 
-export class VFSError extends Error {
+export class VFSError extends Error implements NodeJS.ErrnoException {
   constructor(
     message: string,
     {
@@ -56,6 +55,9 @@ export const IS_DIRECTORY = Symbol("is_directory");
 export const ETAG = Symbol("etag");
 
 export class VStats implements Stats {
+  [IS_DIRECTORY]: boolean;
+  [FULL_PATH]: string;
+  [ETAG]: string | undefined;
   constructor(
     {
       created_at,
@@ -66,9 +68,9 @@ export class VStats implements Stats {
     fullPath: string,
     isDirectory = false
   ) {
-    (this as any)[IS_DIRECTORY] = isDirectory;
-    (this as any)[FULL_PATH] = fullPath;
-    (this as any)[ETAG] = etag;
+    this[IS_DIRECTORY] = isDirectory;
+    this[FULL_PATH] = fullPath;
+    this[ETAG] = etag;
     this.mode = isDirectory ? 16877 : 33206;
     this.birthtimeMs = created_at;
     this.atimeMs = modified_at;
@@ -80,8 +82,8 @@ export class VStats implements Stats {
     this.birthtime = new Date(created_at);
     this.size = size;
   }
-  isFile = (): boolean => !(this as any)[IS_DIRECTORY];
-  isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
+  isFile = (): boolean => !this[IS_DIRECTORY];
+  isDirectory = (): boolean => this[IS_DIRECTORY];
   isBlockDevice = (): boolean => false;
   isCharacterDevice = (): boolean => false;
   isSymbolicLink = (): boolean => false;
@@ -110,16 +112,18 @@ export class VStats implements Stats {
 export class VDirent implements Dirent {
   name: string;
   parentPath: string;
+  [FULL_PATH]: string;
+  [IS_DIRECTORY]: boolean;
   constructor(prefix: string, fullPath: string, isDirectory = false) {
-    (this as any)[FULL_PATH] = fullPath;
-    (this as any)[IS_DIRECTORY] = isDirectory;
+    this[FULL_PATH] = fullPath;
+    this[IS_DIRECTORY] = isDirectory;
     const filePath = fullPath.replace(prefix, "");
     const segments = filePath.split("/");
     this.name = segments.pop()!;
     this.parentPath = segments.join("/") || "";
   }
-  isFile = (): boolean => !(this as any)[IS_DIRECTORY];
-  isDirectory = (): boolean => (this as any)[IS_DIRECTORY];
+  isFile = (): boolean => !this[IS_DIRECTORY];
+  isDirectory = (): boolean => this[IS_DIRECTORY];
   isBlockDevice = (): boolean => false;
   isCharacterDevice = (): boolean => false;
   isSymbolicLink = (): boolean => false;

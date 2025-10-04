@@ -2,7 +2,6 @@ import path from "node:path/posix";
 import { createHash } from "node:crypto";
 import type { PathLike } from "node:fs";
 
-
 export async function createEtag(content: Uint8Array) {
   // async for future use
   const hash = createHash("sha256");
@@ -30,4 +29,15 @@ const sqlWildcardChars = new RegExp(String.raw`[\%_]`, "g");
 export function encodePathForSQL(key: string) {
   // append '\\' before each wildcard character
   return key.replace(sqlWildcardChars, String.raw`\\$&`);
+}
+
+export function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as any).code === "string" &&
+    "path" in error &&
+    typeof (error as any).path === "string"
+  );
 }

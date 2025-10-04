@@ -6,15 +6,19 @@
     "dev:deno": "deno serve -A --watch --env-file=.env index.ts",
     "dev:bun": "bun --watch main.ts",
     "build": "bun build.ts",
-    "start": "node --experimental-transform-types main.ts"
+    "start": "node --experimental-transform-types main.ts",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.5",
     "@libsql/kysely-libsql": "^0.4.1",
+    "@ricsam/linkfs": "^2.0.8",
     "@types/pg": "^8.15.5",
     "@vercel/functions": "^3.1.0",
     "hono": "^4.9.9",
     "kysely": "^0.28.7",
     "kysely-postgres-js": "^2.0.0",
+    "memfs": "^4.48.1",
     "mrmime": "^2.0.1",
     "pg": "^8.16.3",
     "postgres": "^3.4.7"
