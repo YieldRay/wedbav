@@ -1,14 +1,13 @@
 import { Buffer } from "node:buffer";
 import path from "node:path/posix";
+import type { Dirent, Stats } from "node:fs";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import z from "zod";
 import { encodeBase64, decodeBase64 } from "hono/utils/encode";
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi";
-import type { Dirent, Stats } from "node:fs";
+import z from "zod/v4";
 import type { FsSubset } from "./abstract.ts";
 import { isErrnoException } from "./utils.ts";
-import "zod-openapi/extend";
 
 const FileType = z.union([z.literal(1), z.literal(2)]);
 type FileType = z.infer<typeof FileType>;
@@ -39,11 +38,12 @@ export function createHonoAPI(
   } = {}
 ) {
   const readOnly = options.readOnly ?? false;
-  const app = new Hono().basePath("/fs");
 
-  app.use("*", cors());
+  const api = new Hono();
 
-  app.post(
+  api.use("*", cors());
+
+  api.post(
     "/stat",
     describeRoute({
       responses: {
@@ -71,7 +71,7 @@ export function createHonoAPI(
       try {
         const stat = await fs.stat(targetPath);
         return c.json({
-          type: getFileType(stat),
+          type: stat.isDirectory() ? 2 : 1,
           ctime: getTime(stat.birthtimeMs ?? stat.ctimeMs),
           mtime: getTime(stat.mtimeMs),
           size: stat.size,
@@ -86,7 +86,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/readDirectory",
     describeRoute({
       responses: {
@@ -113,10 +113,10 @@ export function createHonoAPI(
       const directoryPath = body.path;
 
       try {
-        const entries = (await fs.readdir(directoryPath, { withFileTypes: true })) as Dirent[];
+        const entries = await fs.readdir(directoryPath, { withFileTypes: true });
         const items = entries.map((entry) => ({
           name: entry.name,
-          type: getDirentType(entry),
+          type: entry.isDirectory() ? 2 : 1,
         }));
         return c.json(items);
       } catch (error) {
@@ -128,7 +128,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/createDirectory",
     describeRoute({
       responses: {
@@ -162,7 +162,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/readFile",
     describeRoute({
       responses: {
@@ -209,7 +209,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/writeFile",
     describeRoute({
       responses: {
@@ -263,7 +263,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/copy",
     describeRoute({
       responses: {
@@ -308,7 +308,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/rename",
     describeRoute({
       responses: {
@@ -373,7 +373,7 @@ export function createHonoAPI(
     }
   );
 
-  app.post(
+  api.post(
     "/delete",
     describeRoute({
       responses: {
@@ -415,19 +415,24 @@ export function createHonoAPI(
     }
   );
 
+  const app = new Hono({
+    getPath: (req) => {
+      const url = new URL(req.url);
+      if (req.headers.get("accept")?.startsWith("application/json")) {
+        return "/fs" + url.pathname + url.search;
+      } else {
+        return "/fs/UNREACHABLE";
+      }
+    },
+  });
+
+  app.route("/fs", api);
+
   return app;
 }
 
 function getTime(time: number | undefined) {
   return typeof time === "number" ? time : 0;
-}
-
-function getFileType(stat: Stats): FileType {
-  return stat.isDirectory() ? 2 : 1;
-}
-
-function getDirentType(entry: Dirent): FileType {
-  return entry.isDirectory() ? 2 : 1;
 }
 
 function describeError(description: string) {

@@ -6,6 +6,7 @@ import { type FsSubset, type VStats, ETAG } from "./abstract.ts";
 import { isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { getPathnameFromURL } from "./utils.ts";
+import { createHonoAPI } from "./api.ts";
 import type { Bindings } from "./env.ts";
 import { Hono, type Context } from "hono";
 import { html, raw } from "hono/html";
@@ -46,11 +47,15 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
-  // browser feature
+  // browser feature, this part do not require auth
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
     // if browser is disabled, or the request is not from a browser, skip
-    if (browser === "disabled" || !c.req.header("user-agent")?.startsWith("Mozilla/")) {
+    if (
+      browser === "disabled" ||
+      !c.req.header("user-agent")?.startsWith("Mozilla/") ||
+      c.req.header("accept")?.startsWith("application/json")
+    ) {
       return next();
     }
 
@@ -78,7 +83,15 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       }
 
       // here browser is "list" and the file does not exist, we return an index of the directory
-      const files = await fs.readdir(pathname, { withFileTypes: true });
+      const files = await fs.readdir(pathname, { withFileTypes: true }).catch((e) => {
+        if (isErrnoException(e)) return false as const;
+        throw e;
+      });
+
+      if (!files) {
+        return c.text("Not Found", 404);
+      }
+
       const dir = removeSuffixSlash(pathname);
 
       return c.html(`<html>
@@ -158,6 +171,9 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       })
     );
   }
+
+  // api routes, will be prefixed with /fs internally
+  app.route("/", createHonoAPI(fs));
 
   app.on("PROPFIND", "/*", async (c) => {
     const { pathname } = c.var;
