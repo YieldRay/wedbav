@@ -1,6 +1,9 @@
 {
+  "name": "wedbav",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "src/wedbav.ts",
   "scripts": {
     "dev": "node --experimental-transform-types --env-file=.env --watch main.ts",
     "dev:deno": "deno serve -A --watch --env-file=.env index.ts",
@@ -19,7 +22,7 @@
     "hono": "^4.9.9",
     "hono-openapi": "^1.1.0",
     "kysely": "^0.28.7",
-    "kysely-postgres-js": "^2.0.0",
+    "kysely-postgres-js": "^3.0.0",
     "memfs": "^4.48.1",
     "mrmime": "^2.0.1",
     "pg": "^8.16.3",
@@ -29,7 +32,7 @@
   "devDependencies": {
     "@types/bun": "^1.2.23",
     "@types/deno": "^2.5.0",
-    "@types/node": "^22.18.8",
+    "@types/node": "^24.6.2",
     "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@10.18.0"
