@@ -21,9 +21,7 @@ export function startServerFromFS(fs: FsSubset) {
   const app = createHono(fs, options);
 
   // start the server based on the runtime
-  //@ts-ignore
   if (typeof Deno === "object") {
-    //@ts-ignore
     Deno.serve({ handler: app.fetch, port });
     // deno will automatically log the listening message
   } else if (typeof Bun === "object") {
