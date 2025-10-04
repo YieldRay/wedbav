@@ -14,7 +14,7 @@
     "@libsql/kysely-libsql": "^0.4.1",
     "@ricsam/linkfs": "^2.0.8",
     "@types/pg": "^8.15.5",
-    "@vercel/functions": "^3.1.0",
+    "@vercel/functions": "^3.1.1",
     "hono": "^4.9.9",
     "kysely": "^0.28.7",
     "kysely-postgres-js": "^2.0.0",
@@ -28,5 +28,5 @@
     "@types/node": "^22.18.8",
     "typescript": "^5.9.3"
   },
-  "packageManager": "pnpm@10.17.1"
+  "packageManager": "pnpm@10.18.0"
 }

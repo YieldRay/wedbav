@@ -5,8 +5,8 @@ import { lookup } from "mrmime";
 import { type FsSubset, type VStats, ETAG } from "./abstract.ts";
 import { isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 import type { Bindings } from "./env.ts";
-import { html, raw } from "./html.ts";
 import { Hono, type Context } from "hono";
+import { html, raw } from "hono/html";
 import { basicAuth } from "hono/basic-auth";
 import { logger } from "hono/logger";
 import { showRoutes } from "hono/dev";
@@ -62,7 +62,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       stat = await fs.stat(filepath);
     } catch (err) {
       if (isErrnoException(err)) {
-        return c.text("Not Found", 404);
+        // index.html does not exist
       } else throw err;
     }
 
@@ -85,6 +85,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           <body>
             <h1>Index of ${dir}</h1>
             <ul>
+              ${dir !== "" && dir !== "/" ? `<li><a href="../">../</a></li>` : ""}
               ${raw(
                 files
                   .filter((file) => file.isDirectory())
@@ -166,6 +167,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           lastmodified: Date;
           isdir: boolean;
         }> = [];
+
         for (const file of files) {
           const path = removeSuffixSlash(normalizePathLike(pathname)) + "/" + file.name;
           const stat = await fs.stat(path);
