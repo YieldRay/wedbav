@@ -48,9 +48,11 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
+  const VERSION = 1;
+
   // the api openapi router, without auth
   const api = createHonoAPI(fs, {
-    prefix: "/api" as const,
+    prefix: `/api/v${VERSION}` as const,
     readOnly: false,
   });
 
@@ -58,7 +60,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     documentation: {
       info: {
         title: "wedbav API Reference",
-        version: "1.0.0",
+        version: `${VERSION}.0.0` as const,
       },
       components: {
         securitySchemes: {
