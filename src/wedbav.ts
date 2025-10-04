@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { lookup } from "mrmime";
 import { type FsSubset, type VStats, ETAG } from "./abstract.ts";
 import { isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { copyLikeOperation, mapErrnoToStatus, multiStatusXML, normalizeDavPath } from "./copy_move.ts";
 import type { Bindings } from "./env.ts";
 import { Hono, type Context } from "hono";
 import { html, raw } from "hono/html";
@@ -238,7 +239,118 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return c.body("Created", 201);
   });
 
-  // TODO: move
+  app.on("COPY", "/*", async (c) => {
+    const { pathname } = c.var;
+    const depth = c.req.header("Depth") === "0" ? 0 : Infinity;
+    const overwrite = c.req.header("Overwrite") !== "F"; // Overwrite is "T" by default
+    const dest = c.req.header("Destination");
+    if (!dest) {
+      return c.text("Bad Request: Destination header is required", 400);
+    }
+    const destURL = new URL(dest, c.req.url);
+    if (c.var.url.origin !== destURL.origin) {
+      return c.text("Bad Gateway: Destination must be same origin", 502);
+    }
+    const destPathname = getPathnameFromURL(destURL);
+
+    const result = await copyLikeOperation({
+      fs,
+      sourcePath: pathname,
+      destinationPath: destPathname,
+      depth,
+      overwrite,
+    });
+
+    if (!result.ok) {
+      return c.text(result.message, result.status);
+    }
+
+    if (result.errors.length) {
+      return c.body(multiStatusXML(result.errors), 207, {
+        "Content-Type": "application/xml; charset=UTF-8",
+      });
+    }
+
+    const status = result.destinationExisted ? 204 : 201;
+    if (status === 201) {
+      return c.body("Created", 201, {
+        Location: encodeURI(destPathname),
+      });
+    }
+    return c.status(204);
+  });
+
+  app.on("MOVE", "/*", async (c) => {
+    const { pathname } = c.var;
+    const depth = c.req.header("Depth") === "0" ? 0 : Infinity;
+    const overwrite = c.req.header("Overwrite") !== "F"; // Overwrite is "T" by default
+    const dest = c.req.header("Destination");
+    if (!dest) {
+      return c.text("Bad Request: Destination header is required", 400);
+    }
+    const destURL = new URL(dest, c.req.url);
+    if (c.var.url.origin !== destURL.origin) {
+      return c.text("Bad Gateway: Destination must be same origin", 502);
+    }
+    const destPathname = getPathnameFromURL(destURL);
+
+    let sourceStat: Awaited<ReturnType<FsSubset["stat"]>>;
+    try {
+      sourceStat = await fs.stat(pathname);
+    } catch (err) {
+      if (isErrnoException(err)) {
+        return c.text("Not Found", 404);
+      }
+      throw err;
+    }
+
+    if (normalizeDavPath(pathname) === "/") {
+      return c.text("Forbidden: cannot move root collection", 403);
+    }
+
+    if (sourceStat.isDirectory() && depth === 0) {
+      return c.text("Bad Request: Depth:0 is not allowed when moving a collection", 400);
+    }
+
+    const result = await copyLikeOperation({
+      fs,
+      sourcePath: pathname,
+      destinationPath: destPathname,
+      depth,
+      overwrite,
+      providedSourceStat: sourceStat,
+    });
+
+    if (!result.ok) {
+      return c.text(result.message, result.status);
+    }
+
+    if (result.errors.length) {
+      return c.body(multiStatusXML(result.errors), 207, {
+        "Content-Type": "application/xml; charset=UTF-8",
+      });
+    }
+
+    try {
+      await fs.rm(normalizeDavPath(pathname), {
+        recursive: sourceStat.isDirectory(),
+        force: false,
+      });
+    } catch (err) {
+      if (isErrnoException(err)) {
+        return c.text("Failed to remove source after move", mapErrnoToStatus(err));
+      }
+      throw err;
+    }
+
+    const status = result.destinationExisted ? 204 : 201;
+    if (status === 201) {
+      return c.body("Created", 201, {
+        Location: encodeURI(destPathname),
+      });
+    }
+    return c.status(204);
+  });
 
   app.use("*", async (c) => {
     return c.body("Method Not Allowed", 405, { Allow: "PROPFIND, MOVE, DELETE, GET, PUT, MKCOL" });

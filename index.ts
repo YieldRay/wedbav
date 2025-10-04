@@ -1,13 +1,11 @@
+import "hono";
 import process from "node:process";
 import { PostgresDialect } from "kysely";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { Pool } from "pg";
 import { attachDatabasePool } from "@vercel/functions";
-import { Hono } from "hono";
-import { logger } from "hono/logger";
 import { KyselyFs } from "./src/fs.ts";
-import { createFetchHandler } from "./src/http.ts";
-import { type WedbavOptions } from "./src/wedbav.ts";
+import { type WedbavOptions, createHono } from "./src/wedbav.ts";
 
 const isPg = !!process.env.DATABASE_URL_POSTGRES;
 
@@ -35,8 +33,6 @@ const kyselyFs = new KyselyFs(dialect, {
 const browser = process.env.WEBD_BROWSER as WedbavOptions["browser"];
 const options: WedbavOptions = { browser };
 
-const app = new Hono();
-app.use(logger());
-app.use("*", async (c, next) => createFetchHandler(kyselyFs, options)(c.req.raw));
+const app = createHono(kyselyFs, options);
 /** https://vercel.com/docs/frameworks/backend/hono */
 export default app;
