@@ -1,7 +1,83 @@
 import { STATUS_CODES } from "node:http";
 import path from "node:path/posix";
 import { type FsSubset } from "./abstract.ts";
-import { isErrnoException, removeSuffixSlash } from "./utils.ts";
+import { isErrnoException, removeSuffixSlash, getPathnameFromURL } from "./utils.ts";
+import type { Context } from "hono";
+import type { WedbavContext } from "./wedbav.ts";
+
+export type WebdavContext = Context<WedbavContext>;
+
+export async function handleCopyMoveRequest(c: WebdavContext, type: "COPY" | "MOVE") {
+  const { fs, pathname, url } = c.var;
+  const overwriteHeader = c.req.header("Overwrite");
+  const overwrite = overwriteHeader ? overwriteHeader.toUpperCase() !== "F" : true;
+  const dest = c.req.header("Destination");
+
+  if (!dest) {
+    return c.text("Bad Request: Destination header is required", 400);
+  }
+  const destURL = new URL(dest, url);
+  if (url.origin !== destURL.origin) {
+    return c.text("Bad Gateway: Destination must be on the same origin", 502);
+  }
+  const destPathname = getPathnameFromURL(destURL);
+
+  let sourceStat: Awaited<ReturnType<FsSubset["stat"]>>;
+  try {
+    sourceStat = await fs.stat(pathname);
+  } catch (err) {
+    if (isErrnoException(err)) {
+      return c.text("Not Found", 404);
+    }
+    throw err;
+  }
+
+  let depth = Infinity;
+  if (type === "COPY") {
+    depth = c.req.header("Depth") === "0" ? 0 : Infinity;
+    if (sourceStat.isDirectory() && c.req.header("Depth") === undefined) {
+      depth = Infinity;
+    }
+  } else {
+    // MOVE
+    if (normalizeDavPath(pathname) === "/") {
+      return c.text("Forbidden: cannot move root collection", 403);
+    }
+    const depthHeader = c.req.header("Depth");
+    if (sourceStat.isDirectory() && depthHeader && depthHeader.toLowerCase() !== "infinity") {
+      return c.text("Bad Request: Depth for MOVE on a collection must be 'infinity' or not present", 400);
+    }
+  }
+
+  const result = await copyLikeOperation({
+    fs,
+    sourcePath: pathname,
+    destinationPath: destPathname,
+    depth,
+    overwrite,
+    providedSourceStat: sourceStat,
+    type,
+  });
+
+  if (!result.ok) {
+    return c.text(result.message, result.status);
+  }
+
+  if (result.errors.length) {
+    // Propagate per-resource failures via multistatus so the client can react.
+    return c.body(multiStatusXML(result.errors), 207, {
+      "Content-Type": "application/xml; charset=UTF-8",
+    });
+  }
+
+  const status = result.destinationExisted ? 204 : 201;
+  if (status === 201) {
+    return c.body("Created", 201, {
+      Location: encodeURI(destPathname),
+    });
+  }
+  return c.body(null, 204);
+}
 
 export type CopyErrorStatus = 400 | 403 | 404 | 409 | 412 | 500 | 507;
 
@@ -18,6 +94,7 @@ type CopyOperationParams = {
   depth: number;
   overwrite: boolean;
   providedSourceStat?: Awaited<ReturnType<FsSubset["stat"]>>;
+  type: "COPY" | "MOVE";
 };
 
 type CopyOperationSuccess = {
@@ -46,6 +123,7 @@ export async function copyLikeOperation({
   depth,
   overwrite,
   providedSourceStat,
+  type,
 }: CopyOperationParams): Promise<CopyOperationResult> {
   let sourceStat = providedSourceStat;
   if (!sourceStat) {
@@ -151,6 +229,29 @@ export async function copyLikeOperation({
 
   const errors: CopyError[] = [];
 
+  if (type === "MOVE") {
+    const renameSource = sourceIsDirectory ? withTrailingSlash(normalizedSource) : normalizedSource;
+    const renameDestination = sourceIsDirectory ? withTrailingSlash(normalizedDestination) : normalizedDestination;
+    try {
+      await fs.rename(renameSource, renameDestination);
+    } catch (err) {
+      if (isErrnoException(err)) {
+        return {
+          ok: false,
+          status: mapErrnoToStatus(err),
+          message: err.message,
+        };
+      }
+      throw err;
+    }
+
+    return {
+      ok: true,
+      destinationExisted: destinationExists,
+      errors,
+    };
+  }
+
   if (sourceIsDirectory) {
     await copyDirectoryRecursive(fs, normalizedSource, normalizedDestination, depth, errors);
   } else {
@@ -189,14 +290,14 @@ async function copyDirectoryRecursive(
     await fs.mkdir(destinationDir, { recursive: false });
   } catch (err) {
     if (isErrnoException(err)) {
-      if (err.code !== "EEXIST") {
-        errors.push({
-          href: destinationDir,
-          status: mapErrnoToStatus(err),
-          description: err.message,
-        });
-        return;
-      }
+      // If the parent operation already cleared the destination, we shouldn't hit an EEXIST here.
+      // Any error here is a failure for this subtree.
+      errors.push({
+        href: destinationDir,
+        status: mapErrnoToStatus(err),
+        description: err.message,
+      });
+      return;
     } else {
       throw err;
     }

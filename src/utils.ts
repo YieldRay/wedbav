@@ -41,3 +41,15 @@ export function isErrnoException(error: unknown): error is NodeJS.ErrnoException
     typeof (error as any).path === "string"
   );
 }
+
+export function getPathnameFromURL(url: string | URL) {
+  return decodeURISafe(new URL(url).pathname);
+}
+
+export function decodeURISafe(uri: string): string {
+  try {
+    return decodeURI(uri);
+  } catch {
+    return uri;
+  }
+}
