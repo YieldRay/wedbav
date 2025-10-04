@@ -10,13 +10,19 @@ const port = Number(env.PORT || 3000);
 const tableName = env.WEDBAV_TABLE;
 const browser = env.WEDBAV_BROWSER as WedbavOptions["browser"];
 
-export default async function startServer(dialect: Dialect, dbType?: "sqlite" | "mysql" | "pg") {
+export default async function startServer(
+  dialect: Dialect,
+  dbType?: "sqlite" | "mysql" | "pg",
+  options: Partial<WedbavOptions> = {}
+) {
   const kyselyFs = new KyselyFs(dialect, { tableName, dbType });
-  startServerFromFS(kyselyFs);
+  startServerFromFS(kyselyFs, options);
 }
 
-export function startServerFromFS(fs: FsSubset) {
-  const options: WedbavOptions = { browser };
+export function startServerFromFS(fs: FsSubset, options: Partial<WedbavOptions> = {}) {
+  if (!options.browser) {
+    options.browser = browser;
+  }
 
   const app = createHono(fs, options);
 

@@ -14,6 +14,7 @@ import { basicAuth } from "hono/basic-auth";
 import { logger } from "hono/logger";
 import { showRoutes } from "hono/dev";
 import { cors } from "hono/cors";
+import { generateSpecs, type GenerateSpecOptions } from "hono-openapi";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -47,18 +48,87 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
+  // the api openapi router, without auth
+  const api = createHonoAPI(fs, {
+    prefix: "/api" as const,
+    readOnly: false,
+  });
+
+  const createAPIMetadata = (serverUrl: string): Partial<GenerateSpecOptions> => ({
+    documentation: {
+      info: {
+        title: "wedbav API Reference",
+        version: "1.0.0",
+      },
+      components: {
+        securitySchemes: {
+          basicAuth: {
+            type: "http",
+            scheme: "basic",
+          },
+        },
+      },
+      security: [
+        {
+          basicAuth: [],
+        },
+      ],
+      servers: [
+        {
+          url: serverUrl,
+          description: "Current server",
+        },
+      ],
+    },
+  });
+
+  app.get("/openapi.json", async (c, next) => {
+    if (!c.req.header("accept")?.startsWith("application/json")) return next();
+
+    const spec = await generateSpecs(api, createAPIMetadata(c.var.url.origin));
+    return c.json(spec);
+  });
+
+  app.get("/openapi", async (c, next) => {
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+
+    if (!requestHTML) return next();
+
+    const spec = await generateSpecs(api, createAPIMetadata(c.var.url.origin));
+    return c.html(/*html*/ `<!doctype html>
+<html>
+  <head>
+    <title>API Reference</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script>
+      Scalar.createApiReference('#app', {
+        content: \`${JSON.stringify(spec)}\`
+      })
+    </script>
+  </body>
+</html>`);
+  });
+
   // browser feature, this part do not require auth
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
     // if browser is disabled, or the request is not from a browser, skip
-    if (
-      browser === "disabled" ||
-      !c.req.header("user-agent")?.startsWith("Mozilla/") ||
-      c.req.header("accept")?.startsWith("application/json")
-    ) {
+
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+
+    console.log({ requestHTML });
+
+    if (browser === "disabled" || !requestHTML) {
       return next();
     }
-
+    // now, browser is either "list" or "enabled", and the request is from a browser
     const { pathname } = c.var;
 
     let filepath = pathname;
@@ -173,13 +243,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   }
 
   // api routes
-  app.route(
-    "/",
-    createHonoAPI(fs, {
-      prefix: "/api" as const,
-      readOnly: false,
-    })
-  );
+  app.route("/", api);
 
   app.on("PROPFIND", "/*", async (c) => {
     const { pathname } = c.var;
@@ -239,12 +303,20 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     const { pathname } = c.var;
 
     const name = pathname.split("/").pop()!;
-    const { body, stat } = await readBufferOrStream(fs, pathname);
-    return c.body(convertToWebStream(body), 200, {
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
-      "Content-Length": stat.size.toString(),
-      "Content-Type": "application/octet-stream",
-    });
+
+    try {
+      const { body, stat } = await readBufferOrStream(fs, pathname);
+      return c.body(convertToWebStream(body), 200, {
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        "Content-Length": stat.size.toString(),
+        "Content-Type": "application/octet-stream",
+      });
+    } catch (e) {
+      if (isErrnoException(e)) {
+        return c.text("Not Found", 404);
+      }
+      throw e;
+    }
   });
 
   app.put("/*", async (c) => {

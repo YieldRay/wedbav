@@ -31,6 +31,9 @@ const DefaultSuccess = z.object({
   success: z.boolean(),
 });
 
+/**
+ * The api router, will only handle the request that have header `accept: application/json`
+ */
 export function createHonoAPI<Prefix extends string>(
   fs: FsSubset,
   options: {
@@ -429,7 +432,6 @@ export function createHonoAPI<Prefix extends string>(
   });
 
   app.route(PREFIX, api);
-
   return app;
 }
 
