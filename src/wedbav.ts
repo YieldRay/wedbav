@@ -123,8 +123,6 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     const requestHTML =
       c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
 
-    console.log({ requestHTML });
-
     if (browser === "disabled" || !requestHTML) {
       return next();
     }
@@ -212,12 +210,19 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       }
     }
 
-    const { body } = await readBufferOrStream(fs, filepath);
-    return c.body(convertToWebStream(body), 200, {
-      "last-modified": stat.mtime.toUTCString(),
-      "content-length": stat.size.toString(),
-      "content-type": lookup(filepath) || "application/octet-stream",
-    });
+    try {
+      const { body } = await readBufferOrStream(fs, filepath);
+      return c.body(convertToWebStream(body), 200, {
+        "last-modified": stat.mtime.toUTCString(),
+        "content-length": stat.size.toString(),
+        "content-type": lookup(filepath) || "application/octet-stream",
+      });
+    } catch (e) {
+      if (isErrnoException(e)) {
+        return c.text("Not Found", 404);
+      }
+      throw e;
+    }
   });
 
   // basic auth
@@ -235,6 +240,9 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         ) => {
           if (typeof options.auth === "function") {
             return options.auth(username, password);
+          }
+          if (!c.env.WEDBAV_USERNAME) {
+            return password === c.env.WEDBAV_PASSWORD;
           }
           return username === c.env.WEDBAV_USERNAME && password === c.env.WEDBAV_PASSWORD;
         },

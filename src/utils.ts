@@ -32,14 +32,7 @@ export function encodePathForSQL(key: string) {
 }
 
 export function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof (error as any).code === "string" &&
-    "path" in error &&
-    typeof (error as any).path === "string"
-  );
+  return error instanceof Error && "code" in error && "syscall" in error && "path" in error;
 }
 
 export function getPathnameFromURL(url: string | URL) {

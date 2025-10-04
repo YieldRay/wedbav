@@ -32,6 +32,9 @@ export interface FsSubset {
 }
 
 export class VFSError extends Error implements NodeJS.ErrnoException {
+  code: string;
+  syscall: string;
+  path: string;
   constructor(
     message: string,
     {
@@ -47,6 +50,9 @@ export class VFSError extends Error implements NodeJS.ErrnoException {
   ) {
     super(`${code}: ${message}, ${syscall} '${path}'`);
     this.name = "VFSError";
+    this.code = code;
+    this.syscall = syscall;
+    this.path = String(path);
   }
 }
 
