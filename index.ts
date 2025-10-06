@@ -1,4 +1,4 @@
-import "hono";
+import "hono"; // for vercel
 import { PostgresDialect } from "kysely";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { Pool } from "pg";
