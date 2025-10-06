@@ -458,7 +458,7 @@ export class KyselyFs implements FsSubset {
         .map((f) => new VDirent(dirKey, f)),
     ] satisfies Dirent[];
 
-    if (withFileTypes) {5
+    if (withFileTypes) {
       return dirents;
     }
     // Return names relative to dirKey (may include subpaths if recursive)

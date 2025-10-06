@@ -9,7 +9,7 @@ Supported runtimes: Node.js, Deno, Bun
 
 Design Note:
 
-- Uses minimal dependencies, uses Kysely as the ORM to support backend databases.
+- Uses minimal dependencies, uses [Kysely](https://kysely.dev/) as the ORM to support backend databases.
 - Layered architecture: The WebDAV layer operates the fs API, and the database layer implements the fs API (the fs API interface is similar to Node.js's fs/promises module).
 
 ## Deployment
