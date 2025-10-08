@@ -36,7 +36,25 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
   app.use(logger());
 
-  app.use(cors());
+  app.use(async (c, next) => {
+    let origin = c.req.header("origin");
+    if (!origin) return next();
+    origin = origin === "null" ? "*" : origin;
+    c.header("timing-allow-origin", origin);
+
+    c.header("access-control-allow-origin", origin);
+    c.header("access-control-allow-credentials", "true");
+
+    if (c.req.method === "OPTIONS") {
+      c.header("access-control-allow-methods", c.req.header("access-control-request-methods") || "*");
+      c.header("access-control-allow-headers", c.req.header("access-control-request-headers") || "*");
+      c.header("access-control-max-age", "86400");
+      return c.body(null, 204);
+    } else {
+      c.header("access-control-expose-headers", "*");
+    }
+    return next();
+  });
 
   // variable middleware
   app.use("/*", async (c, next) => {
@@ -162,7 +180,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         return c.text("Not Found", 404);
       }
 
-      const dir = removeSuffixSlash(pathname);
+      const dir = removeSuffixSlash(pathname) || "/";
 
       return c.html(`<html>
           <head>
@@ -172,7 +190,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           <body>
             <h1>Index of ${dir}</h1>
             <ul>
-              ${dir !== "" && dir !== "/" ? `<li><a href="../">../</a></li>` : ""}
+              ${dir !== "/" ? `<li><a href="../">../</a></li>` : ""}
               ${raw(
                 files
                   .filter((file) => file.isDirectory())

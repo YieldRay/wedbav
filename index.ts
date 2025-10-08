@@ -27,7 +27,7 @@ const dialect = isPg
 
 const kyselyFs = new KyselyFs(dialect, {
   tableName: env.WEDBAV_TABLE,
-  dbType: "sqlite",
+  dbType: isPg ? "pg" : "sqlite",
 });
 
 const browser = env.WEDBAV_BROWSER as WedbavOptions["browser"];

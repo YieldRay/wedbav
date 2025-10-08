@@ -46,8 +46,6 @@ export function createHonoAPI<Prefix extends string>(
 
   const api = new Hono();
 
-  api.use("*", cors());
-
   api.post(
     "/stat",
     describeRoute({

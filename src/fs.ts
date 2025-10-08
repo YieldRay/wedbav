@@ -116,10 +116,13 @@ export class KyselyFs implements FsSubset {
       dirAgg?.created_at
     )
       return new VStats(dirAgg, dirKey, true);
+
+    // make sure root dir always exists
+    if (dirKey === "/") return new VStats({ created_at: 0, modified_at: 0, size: 0 }, dirKey, true);
   }
 
   private async _getDirStats(dirKey: string) {
-    if (dirKey === "") return this._getImplicitDirStats("/");
+    if (dirKey === "" || dirKey === "/") return this._getImplicitDirStats("/");
 
     console.assert(dirKey.endsWith("/"), "dirKey must end with /");
     // First, check explicit directory row
@@ -507,12 +510,19 @@ export class KyselyFs implements FsSubset {
     const encoding = options?.encoding;
     const file = await this.$select.select("content").where("path", "=", fileKey).executeTakeFirst();
 
-    if (!file || !file.content) {
+    console.log({ file });
+
+    if (!file) {
       throw new VFSError("no such file or directory", {
         syscall: "readFile",
         code: "ENOENT",
         path,
       });
+    }
+
+    if (!file.content) {
+      if (encoding) return "";
+      return Buffer.from([]);
     }
 
     if (encoding) return new TextDecoder(encoding).decode(file.content);
