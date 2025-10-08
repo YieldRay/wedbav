@@ -18,24 +18,24 @@
     "@libsql/kysely-libsql": "^0.4.1",
     "@ricsam/linkfs": "^2.0.8",
     "@types/pg": "^8.15.5",
-    "@vercel/functions": "^3.1.1",
+    "@vercel/functions": "^3.1.2",
     "hono": "^4.9.10",
     "hono-openapi": "^1.1.0",
     "kysely": "^0.28.7",
     "kysely-postgres-js": "^3.0.0",
-    "memfs": "^4.48.1",
+    "memfs": "^4.49.0",
     "mrmime": "^2.0.1",
     "pg": "^8.16.3",
     "postgres": "^3.4.7",
-    "zod": "^4.1.11"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/bun": "^1.2.23",
     "@types/deno": "^2.5.0",
-    "@types/node": "^24.6.2",
+    "@types/node": "^24.7.0",
     "typescript": "^5.9.3"
   },
-  "packageManager": "pnpm@10.18.0",
+  "packageManager": "pnpm@10.18.1",
   "engines": {
     "node": ">=22"
   }

@@ -7,7 +7,7 @@ import { encodeBase64, decodeBase64 } from "hono/utils/encode";
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi";
 import z from "zod/v4";
 import type { FsSubset } from "./abstract.ts";
-import { isErrnoException } from "./utils.ts";
+import { isErrnoException, mapErrnoToStatus } from "./utils.ts";
 
 const FileType = z.union([z.literal(1), z.literal(2)]);
 type FileType = z.infer<typeof FileType>;
@@ -537,27 +537,4 @@ function toArrayBuffer(view: Uint8Array): ArrayBufferLike {
     return view.buffer;
   }
   return view.slice().buffer;
-}
-
-function mapErrnoToStatus(error: NodeJS.ErrnoException) {
-  switch (error.code) {
-    case "EACCES":
-    case "EPERM":
-      return 403;
-    case "ENOENT":
-      return 404;
-    case "EEXIST":
-      return 400;
-    case "ENOTDIR":
-    case "EISDIR":
-    case "ENOTEMPTY":
-      return 409;
-    case "EINVAL":
-      return 400;
-    case "ENOSPC":
-    case "EFBIG":
-      return 507;
-    default:
-      return 500;
-  }
 }

@@ -1,9 +1,9 @@
 import { STATUS_CODES } from "node:http";
 import path from "node:path/posix";
 import { type FsSubset } from "./abstract.ts";
-import { isErrnoException, removeSuffixSlash, getPathnameFromURL } from "./utils.ts";
-import type { Context } from "hono";
+import { isErrnoException, removeSuffixSlash, getPathnameFromURL, escapeXML, mapErrnoToStatus } from "./utils.ts";
 import type { WedbavContext } from "./wedbav.ts";
+import type { Context } from "hono";
 
 export type WebdavContext = Context<WedbavContext>;
 
@@ -375,34 +375,13 @@ export function withTrailingSlash(pathname: string): string {
   return removeSuffixSlash(pathname) + "/";
 }
 
-export function mapErrnoToStatus(err: NodeJS.ErrnoException): CopyErrorStatus {
-  switch (err.code) {
-    case "EACCES":
-    case "EPERM":
-      return 403;
-    case "EEXIST":
-      return 412;
-    case "ENOENT":
-      return 404;
-    case "ENOTDIR":
-    case "EISDIR":
-    case "ENOTEMPTY":
-      return 409;
-    case "EINVAL":
-      return 400;
-    case "ENOSPC":
-    case "EFBIG":
-      return 507;
-    default:
-      return 500;
-  }
-}
-
 export function multiStatusXML(errors: CopyError[]) {
   const responses = errors
     .map(({ href, status, description }) => {
       const reason = STATUS_CODES[status] ?? "";
-      const desc = description ? `\n    <d:responsedescription>${escapeXml(description)}</d:responsedescription>` : "";
+      const desc = description
+        ? /* xml */ `\n    <d:responsedescription>${escapeXML(description)}</d:responsedescription>`
+        : "";
       return /* xml */ `<d:response>
     <d:href>${encodeURI(href)}</d:href>
     <d:status>HTTP/1.1 ${status} ${reason}</d:status>${desc}
@@ -410,14 +389,8 @@ export function multiStatusXML(errors: CopyError[]) {
     })
     .join("\n");
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<d:multistatus xmlns:d="DAV:">\n${responses}\n</d:multistatus>`;
-}
-
-function escapeXml(input: string) {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return /* xml */ `<?xml version="1.0" encoding="UTF-8"?>
+<d:multistatus xmlns:d="DAV:">
+  ${responses}
+</d:multistatus>`;
 }

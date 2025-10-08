@@ -46,3 +46,42 @@ export function decodeURISafe(uri: string): string {
     return uri;
   }
 }
+
+export function escapeXML(str: string) {
+  const map: Record<string, string> = {
+    ">": "&gt;",
+    "<": "&lt;",
+    "'": "&apos;",
+    '"': "&quot;",
+    "&": "&amp;",
+  };
+  let result = "";
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    result += map[ch] || ch;
+  }
+  return result;
+}
+
+export function mapErrnoToStatus(error: NodeJS.ErrnoException) {
+  switch (error.code) {
+    case "EACCES":
+    case "EPERM":
+      return 403;
+    case "ENOENT":
+      return 404;
+    case "EEXIST":
+      return 400;
+    case "ENOTDIR":
+    case "EISDIR":
+    case "ENOTEMPTY":
+      return 409;
+    case "EINVAL":
+      return 400;
+    case "ENOSPC":
+    case "EFBIG":
+      return 507;
+    default:
+      return 500;
+  }
+}
