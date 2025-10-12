@@ -1,6 +1,6 @@
-import { Buffer } from "node:buffer";
-import { Stats, Dirent, type PathLike } from "node:fs";
-import { Readable } from "node:stream";
+import type { Buffer } from "node:buffer";
+import type { Dirent, PathLike, Stats } from "node:fs";
+import type { Readable } from "node:stream";
 import type { FilesystemTable } from "./fs.ts";
 
 export interface FsSubset {
@@ -17,14 +17,14 @@ export interface FsSubset {
     options?: {
       withFileTypes?: false;
       recursive?: boolean;
-    } | null
+    } | null,
   ): Promise<string[]>;
   readdir(
     path: PathLike,
     options: {
       withFileTypes: true;
       recursive?: boolean;
-    }
+    },
   ): Promise<Dirent[]>;
   writeFile(file: PathLike, data: string | Uint8Array): Promise<void>;
   readFile(path: PathLike): Promise<Buffer>;
@@ -46,7 +46,7 @@ export class VFSError extends Error implements NodeJS.ErrnoException {
       code: string;
       syscall: string;
       path: PathLike;
-    }
+    },
   ) {
     super(`${code}: ${message}, ${syscall} '${path}'`);
     this.name = "VFSError";
@@ -72,7 +72,7 @@ export class VStats implements Stats {
       etag,
     }: Pick<FilesystemTable, "created_at" | "modified_at" | "size"> & { etag?: string },
     fullPath: string,
-    isDirectory = false
+    isDirectory = false,
   ) {
     this[IS_DIRECTORY] = isDirectory;
     this[FULL_PATH] = fullPath;

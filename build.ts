@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { isBuiltin } from "node:module";
-import { styleText, parseArgs } from "node:util";
+import { parseArgs, styleText } from "node:util";
 
 const consoleSuccess = (text: string) => console.log(styleText(["green"], text));
 const consoleError = (text: string) => console.error(styleText(["red"], text));
@@ -62,7 +62,7 @@ if (values.npm) {
         }
         // For non-built-in modules, prefix with "npm:"
         return `${p1}"npm:${name}"`;
-      })
+      }),
     );
     consoleInfo(`Processed output: ${output.path}`);
   }
@@ -71,6 +71,7 @@ if (values.npm) {
 fs.copyFile("./package.json", "./dist/package.json");
 
 import { $ } from "bun";
+
 if (values.docker) {
   const IMAGE_NAME = crypto.randomUUID();
   consoleInfo(`Building Docker image with name: ${IMAGE_NAME}`);

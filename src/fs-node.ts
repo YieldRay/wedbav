@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { link } from "@ricsam/linkfs";
-import type { FsSubset } from "./abstract.ts";
 import { memfs, type NestedDirectoryJSON } from "memfs";
+import type { FsSubset } from "./abstract.ts";
 
 type FS = typeof fs;
 

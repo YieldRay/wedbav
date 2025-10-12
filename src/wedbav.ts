@@ -1,20 +1,18 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import { Readable } from "node:stream";
-import { lookup } from "mrmime";
-import { type FsSubset, type VStats, ETAG } from "./abstract.ts";
-import { isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
-import { handleCopyMoveRequest } from "./copy_move.ts";
-import { getPathnameFromURL } from "./utils.ts";
-import { createHonoAPI } from "./api.ts";
-import { env, type Bindings } from "./env.ts";
-import { Hono, type Context } from "hono";
-import { html, raw } from "hono/html";
+import { type Context, Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
-import { logger } from "hono/logger";
 import { showRoutes } from "hono/dev";
-import { cors } from "hono/cors";
-import { generateSpecs, type GenerateSpecOptions } from "hono-openapi";
+import { html, raw } from "hono/html";
+import { logger } from "hono/logger";
+import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
+import { lookup } from "mrmime";
+import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
+import { createHonoAPI } from "./api.ts";
+import { handleCopyMoveRequest } from "./copy_move.ts";
+import { type Bindings, env } from "./env.ts";
+import { getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -196,14 +194,14 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
                   .filter((file) => file.isDirectory())
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((file) => html`<li><a href="./${file.name}/">${file.name}/</a></li>`)
-                  .join("\n")
+                  .join("\n"),
               )}
               ${raw(
                 files
                   .filter((file) => file.isFile())
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((file) => html`<li><a href="./${file.name}">${file.name}</a></li>`)
-                  .join("\n")
+                  .join("\n"),
               )}
             </ul>
           </body>
@@ -252,12 +250,12 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       verifyUser: (
         username,
         password,
-        c: Context<{
+        _c: Context<{
           Variables: Variables;
           // although we have type the Bindings, but since it only works in Cloudflare Workers,
           // we actually DO NOT use it
           Bindings: Bindings;
-        }>
+        }>,
       ) => {
         if (typeof options.auth === "function") {
           return options.auth(username, password);
@@ -267,7 +265,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         }
         return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
       },
-    })
+    }),
   );
 
   // api routes
@@ -287,7 +285,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         }> = [];
 
         for (const file of files) {
-          const path = removeSuffixSlash(normalizePathLike(pathname)) + "/" + file.name;
+          const path = `${removeSuffixSlash(normalizePathLike(pathname))}/${file.name}`;
           const stat = await fs.stat(path);
           dav.push({
             path,
@@ -404,7 +402,7 @@ async function readBufferOrStream(fs: FsSubset, pathname: string, stat?: { size:
 function davXML(
   date: Date,
   dir: string,
-  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = []
+  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = [],
 ) {
   const files = filesOrThisIsFile === true ? [] : filesOrThisIsFile;
   const isDir = filesOrThisIsFile !== true;
@@ -427,10 +425,10 @@ function davXMLSingleResponse(path: string, contentlength: number, lastmodified:
             <d:getcontentlength>${contentlength}</d:getcontentlength>
             <d:getlastmodified>${lastmodified.toUTCString()}</d:getlastmodified>
             <d:resourcetype>${isdir ? "<d:collection/>" : ""}</d:resourcetype>${
-    isdir
-      ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
-      : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
-  }
+              isdir
+                ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
+                : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
+            }
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>

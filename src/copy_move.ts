@@ -1,9 +1,9 @@
 import { STATUS_CODES } from "node:http";
 import path from "node:path/posix";
-import { type FsSubset } from "./abstract.ts";
-import { isErrnoException, removeSuffixSlash, getPathnameFromURL, escapeXML, mapErrnoToStatus } from "./utils.ts";
-import type { WedbavContext } from "./wedbav.ts";
 import type { Context } from "hono";
+import type { FsSubset } from "./abstract.ts";
+import { escapeXML, getPathnameFromURL, isErrnoException, mapErrnoToStatus, removeSuffixSlash } from "./utils.ts";
+import type { WedbavContext } from "./wedbav.ts";
 
 export type WebdavContext = Context<WedbavContext>;
 
@@ -281,7 +281,7 @@ async function copyDirectoryRecursive(
   source: string,
   destination: string,
   depth: number,
-  errors: CopyError[]
+  errors: CopyError[],
 ) {
   const sourceDir = withTrailingSlash(source);
   const destinationDir = withTrailingSlash(destination);
@@ -372,7 +372,7 @@ export function normalizeDavPath(pathname: string): string {
 
 export function withTrailingSlash(pathname: string): string {
   if (pathname === "/") return "/";
-  return removeSuffixSlash(pathname) + "/";
+  return `${removeSuffixSlash(pathname)}/`;
 }
 
 export function multiStatusXML(errors: CopyError[]) {

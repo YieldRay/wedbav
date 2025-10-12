@@ -1,11 +1,11 @@
 import "hono"; // for vercel
-import { PostgresDialect } from "kysely";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
-import { Pool } from "pg";
 import { attachDatabasePool } from "@vercel/functions";
+import { PostgresDialect } from "kysely";
+import { Pool } from "pg";
 import { env } from "./src/env.ts";
 import { KyselyFs } from "./src/fs.ts";
-import { type WedbavOptions, createHono } from "./src/wedbav.ts";
+import { createHono, type WedbavOptions } from "./src/wedbav.ts";
 
 const isPg = !!env.DATABASE_URL_POSTGRES;
 

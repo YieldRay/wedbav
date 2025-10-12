@@ -1,16 +1,14 @@
 import { Buffer } from "node:buffer";
-import path from "node:path/posix";
 import type { Dirent, Stats } from "node:fs";
+import path from "node:path/posix";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { encodeBase64, decodeBase64 } from "hono/utils/encode";
+import { decodeBase64, encodeBase64 } from "hono/utils/encode";
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi";
 import z from "zod/v4";
 import type { FsSubset } from "./abstract.ts";
 import { isErrnoException, mapErrnoToStatus } from "./utils.ts";
 
 const FileType = z.union([z.literal(1), z.literal(2)]);
-type FileType = z.infer<typeof FileType>;
 
 const FileStat = z.object({
   type: FileType,
@@ -24,7 +22,7 @@ const ReadDirectoryResponse = z.array(
   z.object({
     name: z.string(),
     type: FileType,
-  })
+  }),
 );
 
 const DefaultSuccess = z.object({
@@ -39,7 +37,7 @@ export function createHonoAPI<Prefix extends string>(
   options: {
     readOnly?: boolean;
     prefix?: Prefix;
-  } = {}
+  } = {},
 ) {
   const PREFIX = options.prefix ?? "/fs";
   const readOnly = options.readOnly ?? false;
@@ -66,7 +64,7 @@ export function createHonoAPI<Prefix extends string>(
       "json",
       z.object({
         path: z.string(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -86,7 +84,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -109,7 +107,7 @@ export function createHonoAPI<Prefix extends string>(
       "json",
       z.object({
         path: z.string(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -128,7 +126,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -143,7 +141,7 @@ export function createHonoAPI<Prefix extends string>(
       "json",
       z.object({
         path: z.string(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -162,7 +160,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -177,7 +175,7 @@ export function createHonoAPI<Prefix extends string>(
                 z.object({
                   success: z.literal(true),
                   b64: z.string(),
-                })
+                }),
               ),
             },
           },
@@ -190,7 +188,7 @@ export function createHonoAPI<Prefix extends string>(
       "json",
       z.object({
         path: z.string(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -209,7 +207,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -232,7 +230,7 @@ export function createHonoAPI<Prefix extends string>(
             overwrite: z.boolean(),
           })
           .optional(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -263,7 +261,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -285,7 +283,7 @@ export function createHonoAPI<Prefix extends string>(
             overwrite: z.boolean(),
           })
           .optional(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -308,7 +306,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -330,7 +328,7 @@ export function createHonoAPI<Prefix extends string>(
             overwrite: z.boolean(),
           })
           .optional(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -373,7 +371,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   api.post(
@@ -394,7 +392,7 @@ export function createHonoAPI<Prefix extends string>(
             recursive: z.boolean(),
           })
           .optional(),
-      })
+      }),
     ),
     async (c) => {
       const body = c.req.valid("json");
@@ -415,7 +413,7 @@ export function createHonoAPI<Prefix extends string>(
         }
         throw error;
       }
-    }
+    },
   );
 
   const app = new Hono({
@@ -424,7 +422,7 @@ export function createHonoAPI<Prefix extends string>(
       if (req.headers.get("accept")?.startsWith("application/json")) {
         return PREFIX + url.pathname + url.search;
       } else {
-        return PREFIX + "/UNREACHABLE";
+        return `${PREFIX}/UNREACHABLE`;
       }
     },
   });
@@ -445,7 +443,7 @@ function describeError(description: string) {
         schema: resolver(
           z.object({
             error: z.string(),
-          })
+          }),
         ),
       },
     },
@@ -495,7 +493,7 @@ async function performCopy(
   sourcePath: string,
   destinationPath: string,
   sourceStat: Stats,
-  overwrite: boolean
+  overwrite: boolean,
 ) {
   const destinationExists = await pathExists(fs, destinationPath);
   if (destinationExists) {

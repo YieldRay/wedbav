@@ -1,6 +1,6 @@
-import path from "node:path/posix";
 import { createHash } from "node:crypto";
 import type { PathLike } from "node:fs";
+import path from "node:path/posix";
 
 export async function createEtag(content: Uint8Array) {
   // async for future use
@@ -18,11 +18,12 @@ export function removeSuffixSlash(input: string) {
 }
 
 export function normalizePathLike(pathLike: PathLike): string {
-  let pathStr = String(pathLike);
+  const pathStr = String(pathLike);
   return path.normalize(pathStr);
 }
 
 // special character \%_ that need to be escaped in SQL LIKE queries
+// biome-ignore lint/complexity/useRegexLiterals: String.raw here improves readability
 const sqlWildcardChars = new RegExp(String.raw`[\%_]`, "g");
 
 /** Escape % and _ for usage in SQL LIKE expressions. */
@@ -85,5 +86,3 @@ export function mapErrnoToStatus(error: NodeJS.ErrnoException) {
       return 500;
   }
 }
-
- 

@@ -10,7 +10,10 @@
     "dev:bun": "bun --watch main.ts",
     "build": "bun build.ts",
     "start": "node main.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "check": "biome check --unsafe",
+    "format": "biome format",
+    "lint": "biome lint"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
@@ -30,6 +33,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.2.5",
     "@types/bun": "^1.2.23",
     "@types/deno": "^2.5.0",
     "@types/node": "^24.7.0",

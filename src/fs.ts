@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer";
+import type { Dirent, PathLike, Stats } from "node:fs";
 import { dirname, relative } from "node:path/posix";
-import { Stats, Dirent, type PathLike } from "node:fs";
-import { styleText } from "node:util";
 import { Readable } from "node:stream";
+import { styleText } from "node:util";
 import { type Dialect, Kysely, sql } from "kysely";
-import { FULL_PATH, VDirent, VFSError, VStats, type FsSubset } from "./abstract.ts";
-import { createEtag, normalizePathLike, removeSuffixSlash, encodePathForSQL } from "./utils.ts";
+import { type FsSubset, FULL_PATH, VDirent, VFSError, VStats } from "./abstract.ts";
+import { createEtag, encodePathForSQL, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
@@ -52,7 +52,7 @@ export class KyselyFs implements FsSubset {
       tableName?: string;
       /** @default "sqlite" */
       dbType?: "sqlite" | "mysql" | "pg";
-    }
+    },
   ) {
     const { tableName = DEFAULT_TABLE_NAME, dbType = "sqlite" } = options;
     this._tableName = tableName;
@@ -143,7 +143,7 @@ export class KyselyFs implements FsSubset {
 
     // key is a dir key
     if (isDir) {
-      const dirKey = removeSuffixSlash(key) + "/";
+      const dirKey = `${removeSuffixSlash(key)}/`;
       const dir = await this._getDirStats(dirKey);
       if (dir) return dir;
 
@@ -166,7 +166,7 @@ export class KyselyFs implements FsSubset {
     if (file) return file;
 
     // then try directory
-    const dirKey = key + "/";
+    const dirKey = `${key}/`;
     const dir = await this._getDirStats(dirKey);
     if (dir) return dir;
 
@@ -189,7 +189,7 @@ export class KyselyFs implements FsSubset {
     }
 
     // we should check if dest is a directory
-    const destDirKey = destKey + "/";
+    const destDirKey = `${destKey}/`;
     if (await this._getDirStats(destDirKey)) {
       throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
     }
@@ -220,7 +220,7 @@ export class KyselyFs implements FsSubset {
           size: file.size,
           content: file.content,
           etag: file.etag,
-        })
+        }),
       )
       .execute();
   }
@@ -236,7 +236,7 @@ export class KyselyFs implements FsSubset {
 
     if (isDir) {
       const oldDirKey = oldKey;
-      const newDirKey = removeSuffixSlash(newKey) + "/";
+      const newDirKey = `${removeSuffixSlash(newKey)}/`;
       const explicitDir = await this._getExplicitDirStats(oldKey);
       if (explicitDir) {
         if (await this._getExplicitDirStats(newDirKey)) {
@@ -269,7 +269,7 @@ export class KyselyFs implements FsSubset {
     }
 
     // check if newKey is a directory
-    const newDirKey = newFileKey + "/";
+    const newDirKey = `${newFileKey}/`;
     if (await this._getDirStats(newDirKey)) {
       throw new VFSError("illegal operation on a directory", { syscall: "rename", code: "EISDIR", path: newPath });
     }
@@ -288,7 +288,7 @@ export class KyselyFs implements FsSubset {
 
   async rmdir(path: PathLike, options?: { recursive?: boolean }): Promise<void> {
     const fileKey = removeSuffixSlash(normalizePathLike(path));
-    const dirKey = fileKey + "/";
+    const dirKey = `${fileKey}/`;
     const recursive = options?.recursive ?? false;
 
     if (await this._getFileStats(fileKey)) {
@@ -327,7 +327,7 @@ export class KyselyFs implements FsSubset {
 
     const key = normalizePathLike(path);
     const fileKey = removeSuffixSlash(key);
-    const dirKey = fileKey + "/";
+    const dirKey = `${fileKey}/`;
 
     try {
       const stat = await this.stat(path);
@@ -349,7 +349,7 @@ export class KyselyFs implements FsSubset {
   async mkdir(path: PathLike, options?: { recursive?: boolean | undefined } | null): Promise<string | undefined> {
     const recursive = options?.recursive ?? false;
     const fileKey = removeSuffixSlash(normalizePathLike(path));
-    const dirKey = fileKey + "/";
+    const dirKey = `${fileKey}/`;
 
     if (await this._getFileStats(fileKey)) {
       throw new VFSError("file exists", { syscall: "mkdir", code: "EEXIST", path });
@@ -361,7 +361,7 @@ export class KyselyFs implements FsSubset {
 
     if (!recursive) {
       // check if parent dir exists
-      const parentDirKey = dirname(dirKey) + "/";
+      const parentDirKey = `${dirname(dirKey)}/`;
       if (
         parentDirKey !== "./" &&
         // ./ means root dir, which always exists
@@ -394,12 +394,12 @@ export class KyselyFs implements FsSubset {
   async readdir(path: PathLike, options: { withFileTypes: true; recursive?: boolean }): Promise<Dirent[]>;
   async readdir(
     path: PathLike,
-    options?: { withFileTypes?: boolean; recursive?: boolean }
+    options?: { withFileTypes?: boolean; recursive?: boolean },
   ): Promise<string[] | Dirent[]> {
     const withFileTypes = options?.withFileTypes || false;
     const recursive = options?.recursive || false;
 
-    const dirKey = removeSuffixSlash(normalizePathLike(path)) + "/";
+    const dirKey = `${removeSuffixSlash(normalizePathLike(path))}/`;
 
     const allFiles = await this.$select
       .select(["path", "created_at", "modified_at", "size"])
@@ -426,6 +426,7 @@ export class KyselyFs implements FsSubset {
         const relNoSlash = removeSuffixSlash(rel);
         if (relNoSlash) {
           let idx = -1;
+          // biome-ignore lint/suspicious/noAssignInExpressions: it's intended
           while ((idx = relNoSlash.indexOf("/", idx + 1)) !== -1) {
             const dirRel = relNoSlash.slice(0, idx);
             if (dirRel) dirSet.add(dirKey + dirRel);
@@ -473,7 +474,7 @@ export class KyselyFs implements FsSubset {
     const fileKey = removeSuffixSlash(normalizePathLike(file));
 
     // check if the explicit dir exists
-    const dirKey = fileKey + "/";
+    const dirKey = `${fileKey}/`;
     if (await this._getExplicitDirStats(dirKey)) {
       throw new VFSError("illegal operation on a directory", { syscall: "writeFile", code: "EISDIR", path: file });
     }
@@ -498,7 +499,7 @@ export class KyselyFs implements FsSubset {
           size: size,
           content: content,
           etag,
-        })
+        }),
       )
       .execute();
   }
@@ -538,7 +539,7 @@ export class KyselyFs implements FsSubset {
       async read(size) {
         const part = await select(
           //! substr is supported by SQLite, MySQL, and PostgreSQL
-          sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content")
+          sql<Uint8Array>`substr(content, ${offset}, ${size})`.as("content"),
         )
           .where("path", "=", fileKey)
           .executeTakeFirst();

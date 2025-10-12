@@ -1,9 +1,9 @@
-import type { Dialect } from "kysely";
 import { serve } from "@hono/node-server";
-import { KyselyFs } from "./fs.ts";
-import { type WedbavOptions, createHono } from "./wedbav.ts";
-import { env } from "./env.ts";
+import type { Dialect } from "kysely";
 import type { FsSubset } from "./abstract.ts";
+import { env } from "./env.ts";
+import { KyselyFs } from "./fs.ts";
+import { createHono, type WedbavOptions } from "./wedbav.ts";
 
 // load all env
 const port = Number(env.PORT || 3000);
@@ -13,7 +13,7 @@ const browser = env.WEDBAV_BROWSER as WedbavOptions["browser"];
 export default async function startServer(
   dialect: Dialect,
   dbType?: "sqlite" | "mysql" | "pg",
-  options: Partial<WedbavOptions> = {}
+  options: Partial<WedbavOptions> = {},
 ) {
   const kyselyFs = new KyselyFs(dialect, { tableName, dbType });
   startServerFromFS(kyselyFs, options);
