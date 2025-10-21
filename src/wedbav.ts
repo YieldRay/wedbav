@@ -36,15 +36,8 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
   app.use(async (c, next) => {
     let origin = c.req.header("origin");
-    if (!origin) {
-      if (c.req.method === "OPTIONS") {
-        return c.body(null, 204);
-      }
-      return next();
-    }
     origin = origin === "null" ? "*" : origin;
     c.header("timing-allow-origin", origin);
-
     c.header("access-control-allow-origin", origin);
     c.header("access-control-allow-credentials", "true");
 
@@ -52,6 +45,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       c.header("access-control-allow-methods", c.req.header("access-control-request-methods") || "*");
       c.header("access-control-allow-headers", c.req.header("access-control-request-headers") || "*");
       c.header("access-control-max-age", "86400");
+      c.header("DAV", "1");
       return c.body(null, 204);
     } else {
       c.header("access-control-expose-headers", "*");
@@ -266,6 +260,9 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           return options.auth(username, password);
         }
         if (!env.WEDBAV_USERNAME) {
+          if (!env.WEDBAV_PASSWORD) {
+            return true;
+          }
           return password === env.WEDBAV_PASSWORD;
         }
         return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
