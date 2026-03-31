@@ -6,7 +6,7 @@ import type { FsSubset } from "./abstract.ts";
 type FS = typeof fs;
 
 /**
- * This make sure FsSubset is compatible with nodejs fs/promises
+ * This makes sure FsSubset is compatible with nodejs fs/promises
  */
 export function createNodeFs(fsModule = fs): FsSubset {
   return {

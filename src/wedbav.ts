@@ -193,14 +193,14 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
                   .filter((file) => file.isDirectory())
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((file) => html`<li><a href="./${file.name}/">${file.name}/</a></li>`)
-                  .join("\n")
+                  .join("\n"),
               )}
               ${raw(
                 files
                   .filter((file) => file.isFile())
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((file) => html`<li><a href="./${file.name}">${file.name}</a></li>`)
-                  .join("\n")
+                  .join("\n"),
               )}
             </ul>
           </body>
@@ -251,10 +251,10 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         password,
         _c: Context<{
           Variables: Variables;
-          // although we have type the Bindings, but since it only works in Cloudflare Workers,
+          // although we have typed the Bindings, but since it only works in Cloudflare Workers,
           // we actually DO NOT use it
           Bindings: Bindings;
-        }>
+        }>,
       ) => {
         if (typeof options.auth === "function") {
           return options.auth(username, password);
@@ -267,7 +267,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         }
         return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
       },
-    })
+    }),
   );
 
   // api routes
@@ -404,7 +404,7 @@ async function readBufferOrStream(fs: FsSubset, pathname: string, stat?: { size:
 function davXML(
   date: Date,
   dir: string,
-  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = []
+  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = [],
 ) {
   const files = filesOrThisIsFile === true ? [] : filesOrThisIsFile;
   const isDir = filesOrThisIsFile !== true;
@@ -427,10 +427,10 @@ function davXMLSingleResponse(path: string, contentlength: number, lastmodified:
             <d:getcontentlength>${contentlength}</d:getcontentlength>
             <d:getlastmodified>${lastmodified.toUTCString()}</d:getlastmodified>
             <d:resourcetype>${isdir ? "<d:collection/>" : ""}</d:resourcetype>${
-    isdir
-      ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
-      : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
-  }
+              isdir
+                ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
+                : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
+            }
         </d:prop>
         <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>

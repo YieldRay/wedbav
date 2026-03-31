@@ -15,7 +15,7 @@ interface Database {
 }
 
 export interface FilesystemTable {
-  // if path ends with /, it must be a explicit directory
+  // if path ends with /, it must be an explicit directory
   // if there is an explicit directory, its path must end with /
   // implicit directories DO NOT have rows
   path: string;
@@ -300,6 +300,7 @@ export class KyselyFs implements FsSubset {
       const hasChildren = await this.$select
         .select("path")
         .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+        .where("path", "!=", dirKey)
         .executeTakeFirst();
       if (hasChildren) {
         throw new VFSError("directory not empty", { syscall: "rmdir", code: "ENOTEMPTY", path });
@@ -364,7 +365,8 @@ export class KyselyFs implements FsSubset {
       const parentDirKey = `${dirname(dirKey)}/`;
       if (
         parentDirKey !== "./" &&
-        // ./ means root dir, which always exists
+        parentDirKey !== "//" &&
+        // ./ and // both mean root dir, which always exists
         !(await this._getDirStats(parentDirKey))
       ) {
         throw new VFSError("no such file or directory", { syscall: "mkdir", code: "ENOENT", path });
@@ -549,7 +551,7 @@ export class KyselyFs implements FsSubset {
           offset += size;
         }
       },
-      highWaterMark: 1024 * 1024, // 1MB chunks, each chunk may be once query to SQLite
+      highWaterMark: 1024 * 1024, // 1MB chunks, each chunk may be one query to SQLite
       objectMode: false,
     });
 
