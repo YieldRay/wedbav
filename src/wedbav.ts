@@ -179,7 +179,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
       const dir = removeSuffixSlash(pathname) || "/";
 
-      return c.html(`<html>
+      return c.html(html`<html>
           <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <title>Index of ${dir}</title>
@@ -187,7 +187,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           <body>
             <h1>Index of ${dir}</h1>
             <ul>
-              ${dir !== "/" ? `<li><a href="../">../</a></li>` : ""}
+              ${dir !== "/" ? html`<li><a href="../">../</a></li>` : ""}
               ${raw(
                 files
                   .filter((file) => file.isDirectory())

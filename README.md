@@ -12,6 +12,32 @@ Design Note:
 - Uses minimal dependencies, uses [Kysely](https://kysely.dev/) as the ORM to support backend databases.
 - Layered architecture: The WebDAV layer operates the fs API, and the database layer implements the fs API (the fs API interface is similar to Node.js's fs/promises module).
 
+```
+  HTTP Clients (WebDAV · REST · Browser)
+            │
+  ┌─────────▼──────────────────────────────────┐
+  │  Hono  ─  Middleware (CORS · auth · logger) │
+  │  WebDAV handlers  │  REST API  │  Browser   │
+  └─────────┬──────────────────────────────────┘
+            │
+  ┌─────────▼──────────────────────────────────┐
+  │         FsSubset Interface  (abstract.ts)   │
+  │  stat · readdir · readFile · writeFile …    │
+  └─────────┬──────────────────────────────────┘
+            │
+  ┌─────────▼──────────────────────────────────┐
+  │         KyselyFs  (fs.ts)                   │
+  │  implicit/explicit dirs · etag · streaming  │
+  └─────────┬──────────────────────────────────┘
+            │
+  ┌─────────▼──────────────────────────────────┐
+  │  Kysely ORM  →  PostgreSQL / SQLite / MySQL │
+  │                                             │
+  │  "filesystem" table                         │
+  │   path(PK) · size · etag · content · meta  │
+  └─────────────────────────────────────────────┘
+```
+
 ## Deployment
 
 Set the environment variables as needed:

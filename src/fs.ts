@@ -511,8 +511,6 @@ export class KyselyFs implements FsSubset {
     const encoding = options?.encoding;
     const file = await this.$select.select("content").where("path", "=", fileKey).executeTakeFirst();
 
-    console.log({ file });
-
     if (!file) {
       throw new VFSError("no such file or directory", {
         syscall: "readFile",
