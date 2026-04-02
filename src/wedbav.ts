@@ -6,8 +6,8 @@ import { basicAuth } from "hono/basic-auth";
 import { showRoutes } from "hono/dev";
 import { html, raw } from "hono/html";
 import { logger } from "hono/logger";
-import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
 import { getMimeType } from "hono/utils/mime";
+import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
 import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
 import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
@@ -233,7 +233,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     try {
       const { body } = await readBufferOrStream(fs, filepath, stat);
       let contentType = getMimeType(filepath);
-      if (contentType && contentType.startsWith("text/")) {
+      if (contentType?.startsWith("text/")) {
         contentType += "; charset=UTF-8";
       }
       return c.body(convertToWebStream(body), 200, {
