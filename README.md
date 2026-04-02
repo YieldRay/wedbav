@@ -1,16 +1,9 @@
 # WEDBAV
 
-WEDBAV is a WebDAV implementation based on database.
+WEDBAV is a WebDAV server backed by a database. It stores an entire filesystem in a single database table — no need to explicitly create directories, similar to S3.
 
-Goal of this project is to create a filesystem based on a database with a single table, which store all files and directories, no need to explicit create a directory, similar to S3.
-
-Supported databases: SQLite, Postgres, MySQL  
+Supported databases: SQLite, PostgreSQL, MySQL  
 Supported runtimes: Node.js, Deno, Bun
-
-Design Note:
-
-- Uses minimal dependencies, uses [Kysely](https://kysely.dev/) as the ORM to support backend databases.
-- Layered architecture: The WebDAV layer operates the fs API, and the database layer implements the fs API (the fs API interface is similar to Node.js's fs/promises module).
 
 ```
   HTTP Clients (WebDAV · REST · Browser)
@@ -21,12 +14,12 @@ Design Note:
   └─────────┬──────────────────────────────────┘
             │
   ┌─────────▼──────────────────────────────────┐
-  │         FsSubset Interface  (abstract.ts)   │
+  │         FsSubset Interface                  │
   │  stat · readdir · readFile · writeFile …    │
   └─────────┬──────────────────────────────────┘
             │
   ┌─────────▼──────────────────────────────────┐
-  │         KyselyFs  (fs.ts)                   │
+  │         KyselyFs                            │
   │  implicit/explicit dirs · etag · streaming  │
   └─────────┬──────────────────────────────────┘
             │
@@ -38,24 +31,90 @@ Design Note:
   └─────────────────────────────────────────────┘
 ```
 
-## Deployment
+## Library usage
 
-Set the environment variables as needed:
-
-> If no environment variables are provided, a local SQLite file will be created and used as the database.
+Install:
 
 ```bash
-# fill this if you use postgres
-DATABASE_URL_POSTGRES=postgresql://xxx
+npm install wedbav
+```
 
-# fill this if you use libsql
-LIBSQL_URL=libsql://xxx
-AUTH_TOKEN=eyJhb
+### Database-backed filesystem
 
-# optional
+`createKyselyFs` accepts any [Kysely dialect](https://kysely.dev/docs/dialects) — the four built-in ones (PostgreSQL, MySQL, MSSQL, SQLite) as well as community dialects for PlanetScale, Cloudflare D1, Neon, libSQL, and many more. Install the dialect package for your database separately.
+
+```ts
+import { createKyselyFs, startServerFromFS } from "wedbav";
+import { LibsqlDialect } from "@libsql/kysely-libsql";
+
+// dbType "sqlite" applies to LibSQL since it is SQLite-compatible
+const fs = createKyselyFs(new LibsqlDialect({ url: "file:data.db" }), { dbType: "sqlite" });
+startServerFromFS(fs, { port: 3000, browser: "list" });
+```
+
+### Bring your own filesystem
+
+Any `FsSubset`-compatible filesystem can be passed — including the built-in adapters for the real filesystem or an in-memory filesystem:
+
+```ts
+import { createNodeFs, createLinkFs, createMemFs, startServerFromFS } from "wedbav";
+
+// Serve the real filesystem (rooted at /)
+startServerFromFS(createNodeFs(), { port: 3000 });
+
+// Serve a specific local directory as the WebDAV root
+startServerFromFS(createLinkFs(["/", "/home/user/files"]), { port: 3000 });
+
+// Serve an in-memory filesystem
+startServerFromFS(createMemFs({ "/hello.txt": "hello world" }), { port: 3000 });
+```
+
+### Hono integration
+
+Use `createHono` to get a Hono app you can mount inside an existing server:
+
+```ts
+import { Hono } from "hono";
+import { createKyselyFs, createHono } from "wedbav";
+import { PostgresDialect } from "kysely";
+import { Pool } from "pg";
+
+const fs = createKyselyFs(new PostgresDialect({ pool: new Pool({ connectionString: "..." }) }), { dbType: "pg" });
+const webdavApp = createHono(fs, { browser: "list" });
+
+// Mount at a sub-path in your existing Hono app
+const app = new Hono();
+app.route("/files", webdavApp);
+```
+
+### `WedbavOptions`
+
+| Option    | Type                                      | Default             | Description                                                             |
+| --------- | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------- |
+| `port`    | `number`                                  | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                         |
+| `browser` | `"disabled" \| "list" \| "enabled"`       | `"disabled"`        | `list` shows directory listing; `enabled` also serves files inline      |
+| `auth`    | `(user: string, pass: string) => boolean` | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD` |
+
+## Self-hosted deployment
+
+Set environment variables as needed:
+
+> If no database env is set, a local SQLite file (`local.db`) is used.
+
+```bash
+# PostgreSQL
+DATABASE_URL_POSTGRES=postgresql://user:pass@host/db
+
+# LibSQL / Turso
+LIBSQL_URL=libsql://your-db.turso.io
+AUTH_TOKEN=eyJhb...
+
+# Optional
+PORT=3000
 WEDBAV_USERNAME=admin
-WEDBAV_PASSWORD=123456
-WEDBAV_BROWSER=list
+WEDBAV_PASSWORD=secret
+WEDBAV_BROWSER=list        # disabled | list | enabled
+WEDBAV_TABLE=filesystem    # custom table name
 ```
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YieldRay/wedbav)
