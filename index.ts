@@ -4,7 +4,7 @@ import { attachDatabasePool } from "@vercel/functions";
 import { PostgresDialect } from "kysely";
 import { Pool } from "pg";
 import { env } from "./src/env.ts";
-import { KyselyFs } from "./src/fs.ts";
+import { createKyselyFs } from "./src/fs.ts";
 import { createHono, type WedbavOptions } from "./src/wedbav.ts";
 
 const isPg = !!env.DATABASE_URL_POSTGRES;
@@ -25,7 +25,7 @@ const dialect = isPg
       authToken: env.AUTH_TOKEN,
     });
 
-const kyselyFs = new KyselyFs(dialect, {
+const kyselyFs = createKyselyFs(dialect, {
   tableName: env.WEDBAV_TABLE,
   dbType: isPg ? "pg" : "sqlite",
 });

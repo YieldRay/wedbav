@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import type { Dialect } from "kysely";
 import type { FsSubset } from "./abstract.ts";
 import { env } from "./env.ts";
-import { KyselyFs } from "./fs.ts";
+import { createKyselyFs } from "./fs.ts";
 import { createHono, type WedbavOptions } from "./wedbav.ts";
 
 // load all env
@@ -15,7 +15,7 @@ export default async function startServer(
   dbType?: "sqlite" | "mysql" | "pg",
   options: Partial<WedbavOptions> = {},
 ) {
-  const kyselyFs = new KyselyFs(dialect, { tableName, dbType });
+  const kyselyFs = createKyselyFs(dialect, { tableName, dbType });
   startServerFromFS(kyselyFs, options);
 }
 
@@ -25,19 +25,20 @@ export function startServerFromFS(fs: FsSubset, options: Partial<WedbavOptions> 
   }
 
   const app = createHono(fs, options);
+  const resolvedPort = options.port ?? port;
 
   // start the server based on the runtime
   if (typeof Deno === "object") {
-    Deno.serve({ handler: app.fetch, port });
+    Deno.serve({ handler: app.fetch, port: resolvedPort });
     // deno will automatically log the listening message
   } else if (typeof Bun === "object") {
-    Bun.serve({ port, fetch: app.fetch });
-    console.log(`Listening on http://localhost:${port}`);
+    Bun.serve({ port: resolvedPort, fetch: app.fetch });
+    console.log(`Listening on http://localhost:${resolvedPort}`);
   } else {
     serve({
       fetch: app.fetch,
-      port,
+      port: resolvedPort,
     });
-    console.log(`Listening on http://localhost:${port}`);
+    console.log(`Listening on http://localhost:${resolvedPort}`);
   }
 }

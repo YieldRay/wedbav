@@ -1,9 +1,12 @@
 {
   "name": "wedbav",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
-  "main": "src/wedbav.ts",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "node --env-file=.env --watch main.ts",
     "dev:deno": "deno serve -A --watch --env-file=.env index.ts",
@@ -29,7 +32,6 @@
     "kysely": "^0.28.15",
     "kysely-postgres-js": "^3.0.0",
     "memfs": "^4.57.1",
-    "mrmime": "^2.0.1",
     "pg": "^8.20.0",
     "postgres": "^3.4.8",
     "zod": "^4.3.6"

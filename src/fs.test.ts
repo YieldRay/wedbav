@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { ETAG, FULL_PATH, type VFSError } from "./abstract.ts";
-import { KyselyFs } from "./fs.ts";
+import { createKyselyFs } from "./fs.ts";
 
 function createFs() {
   const dialect = new LibsqlDialect({ url: ":memory:" });
-  return new KyselyFs(dialect, { dbType: "sqlite" });
+  return createKyselyFs(dialect, { dbType: "sqlite" });
 }
 
 describe("KyselyFs", () => {

@@ -12,6 +12,7 @@ pnpm dev:bun      # Bun with watch mode
 
 # Build & Type checking
 pnpm build        # Build via bun build.ts
+pnpm build:lib    # Build library bundle via tsdown
 pnpm type-check   # TypeScript type checking
 
 # Linting & Formatting
@@ -20,7 +21,11 @@ pnpm format       # Biome format (writes)
 pnpm check        # Biome format check (read-only)
 ```
 
-No test suite exists in this project.
+```bash
+# Testing
+bun test src/*.test.ts   # Run all tests
+bun test src/fs.test.ts  # Run a single test file
+```
 
 ## Architecture
 
@@ -57,6 +62,7 @@ Kysely ORM → SQLite / PostgreSQL / MySQL
 - **`src/env.ts`** — All environment variables (`WEDBAV_USERNAME`, `WEDBAV_PASSWORD`, `PORT`, `WEDBAV_BROWSER`, `WEDBAV_TABLE`, `LIBSQL_URL`, `DATABASE_URL_POSTGRES`)
 - **`src/fs-node.ts`** — Adapters: `createNodeFs()`, `createLinkFs()`, `createMemFs()` — wrap real/in-memory filesystems as `FsSubset`
 - **`src/utils.ts`** — Shared helpers: `mapErrnoToStatus()`, `escapeXML()`, `createEtag()`, `encodePathForSQL()`, etc.
+- **`src/index.ts`** — Library public API barrel; re-exports `createHono`, `createHonoAPI`, `createKyselyFs`, all adapters, and all abstract types
 - **`index.ts`** — Vercel/production entry; detects LibSQL vs Postgres from env
 - **`main.ts`** — Local dev entry; uses `createLinkFs` to serve `./tmp` at `/`
 

@@ -27,7 +27,7 @@ export interface FilesystemTable {
   meta: string | null;
 }
 
-export class KyselyFs implements FsSubset {
+class KyselyFs implements FsSubset {
   /** DO NOT use it directly, use $xxx */
   private readonly _tableName: string;
   private readonly _db: Kysely<Database>;
@@ -273,15 +273,8 @@ export class KyselyFs implements FsSubset {
     if (await this._getDirStats(newDirKey)) {
       throw new VFSError("illegal operation on a directory", { syscall: "rename", code: "EISDIR", path: newPath });
     }
-    // check if newFileKey is an existing file
-    const existingFile = await this._getFileStats(newFileKey);
-    if (existingFile) {
-      throw new VFSError("file already exists", {
-        syscall: "rename",
-        code: "EEXIST",
-        path: newPath,
-      });
-    }
+    // overwrite existing file at newFileKey (Node.js rename semantics)
+    await this.$delete.where("path", "=", newFileKey).execute();
 
     await this.$update.set({ path: newFileKey, modified_at: Date.now() }).where("path", "=", oldFileKey).execute();
   }
@@ -514,6 +507,14 @@ export class KyselyFs implements FsSubset {
     const file = await this.$select.select("content").where("path", "=", fileKey).executeTakeFirst();
 
     if (!file) {
+      // Check if it's a directory before throwing ENOENT
+      if (await this._getDirStats(`${fileKey}/`)) {
+        throw new VFSError("illegal operation on a directory", {
+          syscall: "readFile",
+          code: "EISDIR",
+          path,
+        });
+      }
       throw new VFSError("no such file or directory", {
         syscall: "readFile",
         code: "ENOENT",
@@ -544,7 +545,7 @@ export class KyselyFs implements FsSubset {
           .where("path", "=", fileKey)
           .executeTakeFirst();
 
-        if (!part || !part.content) {
+        if (!part || !part.content || part.content.byteLength === 0) {
           this.push(null);
         } else {
           this.push(Buffer.from(part.content));
@@ -558,3 +559,5 @@ export class KyselyFs implements FsSubset {
     return stream;
   }
 }
+
+export const createKyselyFs = (...args: ConstructorParameters<typeof KyselyFs>) => new KyselyFs(...args);

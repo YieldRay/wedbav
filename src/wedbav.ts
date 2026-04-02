@@ -7,7 +7,7 @@ import { showRoutes } from "hono/dev";
 import { html, raw } from "hono/html";
 import { logger } from "hono/logger";
 import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
-import { lookup } from "mrmime";
+import { getMimeType } from "hono/utils/mime";
 import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
 import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
@@ -18,6 +18,7 @@ export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
   /** @default {"disabled"} */
   browser?: "list" | "enabled" | "disabled";
+  port?: number;
 }
 
 type Variables = {
@@ -179,7 +180,8 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
       const dir = removeSuffixSlash(pathname) || "/";
 
-      return c.html(html`<html>
+      return c.html(
+        html`<html>
           <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <title>Index of ${dir}</title>
@@ -204,7 +206,8 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
               )}
             </ul>
           </body>
-        </html>`);
+        </html>`,
+      );
     }
 
     const etag = (stat as VStats)[ETAG];
@@ -228,11 +231,15 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     }
 
     try {
-      const { body } = await readBufferOrStream(fs, filepath);
+      const { body } = await readBufferOrStream(fs, filepath, stat);
+      let contentType = getMimeType(filepath);
+      if (contentType && contentType.startsWith("text/")) {
+        contentType += "; charset=UTF-8";
+      }
       return c.body(convertToWebStream(body), 200, {
         "last-modified": stat.mtime.toUTCString(),
         "content-length": stat.size.toString(),
-        "content-type": lookup(filepath) || "application/octet-stream",
+        "content-type": contentType || "application/octet-stream",
       });
     } catch (e) {
       if (isErrnoException(e)) {
@@ -333,7 +340,11 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     const name = pathname.split("/").pop()!;
 
     try {
-      const { body, stat } = await readBufferOrStream(fs, pathname);
+      const stat = await fs.stat(pathname);
+      if (stat.isDirectory()) {
+        return c.text("Not Found", 404);
+      }
+      const { body } = await readBufferOrStream(fs, pathname, stat);
       return c.body(convertToWebStream(body), 200, {
         "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
         "Content-Length": stat.size.toString(),
