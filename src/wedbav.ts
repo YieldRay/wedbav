@@ -12,7 +12,7 @@ import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
 import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { type Bindings, env } from "./env.ts";
-import { getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { escapeXML, getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -194,14 +194,19 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
                 files
                   .filter((file) => file.isDirectory())
                   .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((file) => html`<li><a href="./${file.name}/">${file.name}/</a></li>`)
+                  .map(
+                    (file) =>
+                      `<li><a href="./${encodeURIComponent(file.name)}/">${escapeXML(file.name)}/</a></li>`,
+                  )
                   .join("\n"),
               )}
               ${raw(
                 files
                   .filter((file) => file.isFile())
                   .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((file) => html`<li><a href="./${file.name}">${file.name}</a></li>`)
+                  .map(
+                    (file) => `<li><a href="./${encodeURIComponent(file.name)}">${escapeXML(file.name)}</a></li>`,
+                  )
                   .join("\n"),
               )}
             </ul>
