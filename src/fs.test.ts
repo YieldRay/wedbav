@@ -56,6 +56,18 @@ describe("KyselyFs", () => {
       const buf = await fs.readFile("/bin.dat");
       assert.deepEqual(new Uint8Array(buf), data);
     });
+
+    it("throws EISDIR when writing to implicit directory path", async () => {
+      const fs = createFs();
+      await fs.writeFile("/dir-as-file/child.txt", "x");
+      await assert.rejects(
+        () => fs.writeFile("/dir-as-file", "data"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EISDIR");
+          return true;
+        },
+      );
+    });
   });
 
   describe("stat", () => {
@@ -66,6 +78,33 @@ describe("KyselyFs", () => {
       assert.equal(s.isFile(), true);
       assert.equal(s.isDirectory(), false);
       assert.equal(s.size, 7);
+    });
+
+    it("size is UTF-8 byte length, not character count", async () => {
+      const fs = createFs();
+      await fs.writeFile("/utf.txt", "你好"); // 2 chars, 6 bytes
+      const s = await fs.stat("/utf.txt");
+      assert.equal(s.size, 6);
+    });
+
+    it("mtime updates on writeFile overwrite", async () => {
+      const fs = createFs();
+      await fs.writeFile("/ts.txt", "v1");
+      const s1 = await fs.stat("/ts.txt");
+      await new Promise((r) => setTimeout(r, 10));
+      await fs.writeFile("/ts.txt", "v2");
+      const s2 = await fs.stat("/ts.txt");
+      assert.ok(s2.mtimeMs > s1.mtimeMs);
+    });
+
+    it("mtime updates on rename", async () => {
+      const fs = createFs();
+      await fs.writeFile("/before.txt", "x");
+      const s1 = await fs.stat("/before.txt");
+      await new Promise((r) => setTimeout(r, 10));
+      await fs.rename("/before.txt", "/after.txt");
+      const s2 = await fs.stat("/after.txt");
+      assert.ok(s2.mtimeMs > s1.mtimeMs);
     });
 
     it("stats an explicit directory", async () => {
@@ -172,6 +211,12 @@ describe("KyselyFs", () => {
       const result = await fs.mkdir("/singledir");
       assert.equal(result, undefined);
     });
+
+    it("is idempotent for existing dir with recursive:true", async () => {
+      const fs = createFs();
+      await fs.mkdir("/existing-dir");
+      await assert.doesNotReject(() => fs.mkdir("/existing-dir", { recursive: true }));
+    });
   });
 
   describe("readdir", () => {
@@ -226,6 +271,29 @@ describe("KyselyFs", () => {
       const entries = await fs.readdir("/implicit");
       assert.ok(entries.includes("sub"));
     });
+
+    it("throws ENOENT for non-existent directory", async () => {
+      const fs = createFs();
+      await assert.rejects(
+        () => fs.readdir("/no-such-dir"),
+        (err: VFSError) => {
+          assert.equal(err.code, "ENOENT");
+          return true;
+        },
+      );
+    });
+
+    it("throws ENOTDIR when path is a file", async () => {
+      const fs = createFs();
+      await fs.writeFile("/just-a-file.txt", "x");
+      await assert.rejects(
+        () => fs.readdir("/just-a-file.txt"),
+        (err: VFSError) => {
+          assert.equal(err.code, "ENOTDIR");
+          return true;
+        },
+      );
+    });
   });
 
   describe("unlink", () => {
@@ -240,6 +308,12 @@ describe("KyselyFs", () => {
           return true;
         },
       );
+    });
+
+    // diverges from Node.js: real fs throws ENOENT, KyselyFs silently succeeds
+    it("silently succeeds for non-existent file (diverges: Node throws ENOENT)", async () => {
+      const fs = createFs();
+      await assert.doesNotReject(() => fs.unlink("/ghost.txt"));
     });
 
     it("throws EISDIR for directory path", async () => {
@@ -289,6 +363,17 @@ describe("KyselyFs", () => {
         () => fs.rmdir("/afile.txt"),
         (err: VFSError) => {
           assert.equal(err.code, "ENOTDIR");
+          return true;
+        },
+      );
+    });
+
+    it("throws ENOENT for non-existent directory", async () => {
+      const fs = createFs();
+      await assert.rejects(
+        () => fs.rmdir("/nowhere"),
+        (err: VFSError) => {
+          assert.equal(err.code, "ENOENT");
           return true;
         },
       );
@@ -421,16 +506,234 @@ describe("KyselyFs", () => {
   });
 
   describe("createReadStream", () => {
-    it("streams file content via readFile (stream backed by same DB)", async () => {
+    it("streams file content correctly", async () => {
       const fs = createFs();
       const content = "streamed content";
       await fs.writeFile("/stream.txt", content);
-      // Verify the data is stored correctly by reading it back directly
-      const buf = await fs.readFile("/stream.txt");
-      assert.equal(buf.toString(), content);
-      // Verify createReadStream returns a Readable
       const stream = fs.createReadStream("/stream.txt");
-      assert.equal(typeof stream.pipe, "function");
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+      assert.equal(Buffer.concat(chunks).toString(), content);
+    });
+
+    it("streams empty file without hanging", async () => {
+      const fs = createFs();
+      await fs.writeFile("/empty.txt", "");
+      const stream = fs.createReadStream("/empty.txt");
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+      assert.equal(Buffer.concat(chunks).toString(), "");
+    });
+  });
+
+  describe("readFile on directory", () => {
+    it("throws EISDIR for explicit directory", async () => {
+      const fs = createFs();
+      await fs.mkdir("/adir");
+      await assert.rejects(
+        () => fs.readFile("/adir"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EISDIR");
+          return true;
+        },
+      );
+    });
+
+    it("throws EISDIR for implicit directory", async () => {
+      const fs = createFs();
+      await fs.writeFile("/implicitdir/file.txt", "x");
+      await assert.rejects(
+        () => fs.readFile("/implicitdir"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EISDIR");
+          return true;
+        },
+      );
+    });
+  });
+
+  describe("rename overwrites", () => {
+    it("overwrites existing file at destination (Node.js semantics)", async () => {
+      const fs = createFs();
+      await fs.writeFile("/src.txt", "new");
+      await fs.writeFile("/dst.txt", "old");
+      await fs.rename("/src.txt", "/dst.txt");
+      await assert.rejects(() => fs.stat("/src.txt"));
+      const buf = await fs.readFile("/dst.txt");
+      assert.equal(buf.toString(), "new");
+    });
+
+    it("throws EEXIST when renaming dir to existing explicit dir", async () => {
+      const fs = createFs();
+      await fs.mkdir("/srcdir");
+      await fs.mkdir("/dstdir");
+      await assert.rejects(
+        () => fs.rename("/srcdir/", "/dstdir/"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EEXIST");
+          return true;
+        },
+      );
+    });
+  });
+
+  describe("mkdir edge cases", () => {
+    it("throws EEXIST when a file exists at that path", async () => {
+      const fs = createFs();
+      await fs.writeFile("/conflict.txt", "x");
+      await assert.rejects(
+        () => fs.mkdir("/conflict.txt"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EEXIST");
+          return true;
+        },
+      );
+    });
+  });
+
+  describe("rm edge cases", () => {
+    it("throws ENOTEMPTY when removing non-empty directory without recursive", async () => {
+      const fs = createFs();
+      await fs.writeFile("/nonempty2/file.txt", "x");
+      await assert.rejects(
+        () => fs.rm("/nonempty2", { recursive: false }),
+        (err: VFSError) => {
+          assert.equal(err.code, "ENOTEMPTY");
+          return true;
+        },
+      );
+    });
+  });
+
+  describe("directory tree integrity", () => {
+    async function buildTree(fs: ReturnType<typeof createFs>) {
+      // Build this tree:
+      //   /
+      //   ├── a/
+      //   │   ├── b/
+      //   │   │   ├── c.txt
+      //   │   │   └── d.txt
+      //   │   └── e.txt
+      //   └── f/
+      //       └── g.txt
+      await fs.mkdir("/a");
+      await fs.mkdir("/a/b");
+      await fs.writeFile("/a/b/c.txt", "c");
+      await fs.writeFile("/a/b/d.txt", "d");
+      await fs.writeFile("/a/e.txt", "e");
+      await fs.mkdir("/f");
+      await fs.writeFile("/f/g.txt", "g");
+    }
+
+    it("stat correctly identifies every node type", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      for (const dir of ["/", "/a", "/a/b", "/f"]) {
+        const s = await fs.stat(dir);
+        assert.equal(s.isDirectory(), true, `${dir} should be a directory`);
+        assert.equal(s.isFile(), false, `${dir} should not be a file`);
+      }
+      for (const file of ["/a/b/c.txt", "/a/b/d.txt", "/a/e.txt", "/f/g.txt"]) {
+        const s = await fs.stat(file);
+        assert.equal(s.isFile(), true, `${file} should be a file`);
+        assert.equal(s.isDirectory(), false, `${file} should not be a directory`);
+      }
+    });
+
+    it("readdir returns correct immediate children at every level", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      const root = await fs.readdir("/");
+      assert.deepEqual(root.sort(), ["a", "f"]);
+
+      const a = await fs.readdir("/a");
+      assert.deepEqual(a.sort(), ["b", "e.txt"]);
+
+      const ab = await fs.readdir("/a/b");
+      assert.deepEqual(ab.sort(), ["c.txt", "d.txt"]);
+
+      const f = await fs.readdir("/f");
+      assert.deepEqual(f.sort(), ["g.txt"]);
+    });
+
+    it("readdir recursive returns all descendants", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      const all = (await fs.readdir("/", { recursive: true })).sort();
+      assert.deepEqual(all, ["a", "a/b", "a/b/c.txt", "a/b/d.txt", "a/e.txt", "f", "f/g.txt"]);
+    });
+
+    it("rm recursive removes subtree and leaves sibling intact", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      await fs.rm("/a", { recursive: true });
+
+      // /a and everything under it is gone
+      for (const p of ["/a", "/a/b", "/a/b/c.txt", "/a/b/d.txt", "/a/e.txt"]) {
+        await assert.rejects(() => fs.stat(p), `${p} should be gone`);
+      }
+
+      // /f subtree is untouched
+      const s = await fs.stat("/f/g.txt");
+      assert.equal(s.isFile(), true);
+    });
+
+    it("rename subtree moves all children and leaves sibling intact", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      await fs.rename("/a/", "/a2/");
+
+      // old paths gone
+      for (const p of ["/a", "/a/b", "/a/b/c.txt", "/a/e.txt"]) {
+        await assert.rejects(() => fs.stat(p), `${p} should be gone after rename`);
+      }
+
+      // new paths exist with correct types
+      assert.equal((await fs.stat("/a2")).isDirectory(), true);
+      assert.equal((await fs.stat("/a2/b")).isDirectory(), true);
+      assert.equal((await fs.stat("/a2/b/c.txt")).isFile(), true);
+      assert.equal((await fs.stat("/a2/e.txt")).isFile(), true);
+
+      // content preserved
+      assert.equal((await fs.readFile("/a2/b/c.txt")).toString(), "c");
+
+      // sibling untouched
+      assert.equal((await fs.stat("/f/g.txt")).isFile(), true);
+    });
+
+    it("copy subtree duplicates all files and leaves source intact", async () => {
+      const fs = createFs();
+      await buildTree(fs);
+
+      // copy /a/b into /a/b2 by copying files manually (copyFile is file-only)
+      await fs.mkdir("/a/b2");
+      await fs.copyFile("/a/b/c.txt", "/a/b2/c.txt");
+      await fs.copyFile("/a/b/d.txt", "/a/b2/d.txt");
+
+      // new files exist with correct content
+      assert.equal((await fs.readFile("/a/b2/c.txt")).toString(), "c");
+      assert.equal((await fs.readFile("/a/b2/d.txt")).toString(), "d");
+
+      // originals untouched
+      assert.equal((await fs.readFile("/a/b/c.txt")).toString(), "c");
+      assert.equal((await fs.readFile("/a/b/d.txt")).toString(), "d");
+
+      // readdir reflects new structure
+      const ab = await fs.readdir("/a");
+      assert.deepEqual(ab.sort(), ["b", "b2", "e.txt"]);
     });
   });
 

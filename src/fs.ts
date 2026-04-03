@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { styleText } from "node:util";
 import { type Dialect, Kysely, sql } from "kysely";
 import { type FsSubset, FULL_PATH, VDirent, VFSError, VStats } from "./abstract.ts";
-import { createEtag, encodePathForSQL, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { createEtag, encodePathForSQL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
@@ -141,13 +141,12 @@ class KyselyFs implements FsSubset {
     const key = normalizePathLike(path);
     const isDir = key.endsWith("/");
 
-    // key is a dir key
     if (isDir) {
       const dirKey = `${removeSuffixSlash(key)}/`;
       const dir = await this._getDirStats(dirKey);
       if (dir) return dir;
 
-      // although it's a dir key, we still need to check if it's a file for compatibility
+      // intentionally not falling back to file lookup when path ends with /
       // const fileKey = removeSuffixSlash(key);
       // const file = await this._getFileStats(fileKey);
       // if (file) return file;
@@ -159,9 +158,7 @@ class KyselyFs implements FsSubset {
       });
     }
 
-    // key is a file key for now, but we still need to check if it's a dir!
-
-    // try file first
+    // path has no trailing slash — check file first, then directory
     const file = await this._getFileStats(key);
     if (file) return file;
 
@@ -244,15 +241,15 @@ class KyselyFs implements FsSubset {
         }
         await this.$update.set({ path: newDirKey, modified_at: Date.now() }).where("path", "=", oldKey).execute();
       }
-      // implicit directories cannot be renamed, we should rename all children instead
+      // implicit directories cannot be renamed, rename all children instead
+      // not atomic — rename of many rows is not a single transaction
       const allFiles = await this.$select
         .select(["path"])
         .where("path", "like", `${encodePathForSQL(oldDirKey)}%`)
         .execute();
-      //? this is not atomic, we just implement it loosely
-      for (const { path: oldPath } of allFiles) {
-        const newPath = oldPath.replace(oldDirKey, newDirKey);
-        await this.$update.set({ path: newPath, modified_at: Date.now() }).where("path", "=", oldPath).execute();
+      for (const { path: childPath } of allFiles) {
+        const renamedPath = childPath.replace(oldDirKey, newDirKey);
+        await this.$update.set({ path: renamedPath, modified_at: Date.now() }).where("path", "=", childPath).execute();
       }
       return;
     }
@@ -288,6 +285,10 @@ class KyselyFs implements FsSubset {
       throw new VFSError("not a directory", { syscall: "rmdir", code: "ENOTDIR", path });
     }
 
+    if (!(await this._getDirStats(dirKey))) {
+      throw new VFSError("no such file or directory", { syscall: "rmdir", code: "ENOENT", path });
+    }
+
     if (!recursive) {
       // when not recursive, we should check if there are any children
       const hasChildren = await this.$select
@@ -319,8 +320,7 @@ class KyselyFs implements FsSubset {
     const recursive = options?.recursive ?? false;
     const force = options?.force ?? false;
 
-    const key = normalizePathLike(path);
-    const fileKey = removeSuffixSlash(key);
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
     const dirKey = `${fileKey}/`;
 
     try {
@@ -328,12 +328,13 @@ class KyselyFs implements FsSubset {
       if (stat.isDirectory()) {
         return this.rmdir(dirKey, { recursive });
       }
-
-      // it's a file
       await this.unlink(fileKey);
-    } catch {
-      if (force) return;
-      throw new VFSError("no such file or directory", { syscall: "rm", code: "ENOENT", path });
+    } catch (err) {
+      if (isErrnoException(err)) {
+        if (force) return;
+        throw new VFSError("no such file or directory", { syscall: "rm", code: "ENOENT", path });
+      }
+      throw err;
     }
   }
 
@@ -350,6 +351,7 @@ class KyselyFs implements FsSubset {
     }
 
     if (await this._getDirStats(dirKey)) {
+      if (recursive) return undefined;
       throw new VFSError("file exists", { syscall: "mkdir", code: "EEXIST", path });
     }
 
@@ -380,7 +382,7 @@ class KyselyFs implements FsSubset {
       .execute();
 
     if (recursive) {
-      return dirKey; // dummy
+      return dirKey;
     }
     return undefined;
   }
@@ -394,12 +396,21 @@ class KyselyFs implements FsSubset {
     const withFileTypes = options?.withFileTypes || false;
     const recursive = options?.recursive || false;
 
-    const dirKey = `${removeSuffixSlash(normalizePathLike(path))}/`;
+    const fileKey = removeSuffixSlash(normalizePathLike(path));
+    const dirKey = `${fileKey}/`;
+
+    // Check that the path exists and is a directory
+    if (await this._getFileStats(fileKey)) {
+      throw new VFSError("not a directory", { syscall: "readdir", code: "ENOTDIR", path });
+    }
+    if (!(await this._getDirStats(dirKey))) {
+      throw new VFSError("no such file or directory", { syscall: "readdir", code: "ENOENT", path });
+    }
 
     const allFiles = await this.$select
       .select(["path", "created_at", "modified_at", "size"])
       .where("path", "like", `${encodePathForSQL(dirKey)}%`)
-      .execute(); // recursive
+      .execute();
 
     // Collect full paths for files and directories to return.
     const fileSet = new Set<string>();
@@ -467,10 +478,8 @@ class KyselyFs implements FsSubset {
 
   async writeFile(file: PathLike, data: string | Uint8Array): Promise<void> {
     const fileKey = removeSuffixSlash(normalizePathLike(file));
-
-    // check if the explicit dir exists
     const dirKey = `${fileKey}/`;
-    if (await this._getExplicitDirStats(dirKey)) {
+    if (await this._getDirStats(dirKey)) {
       throw new VFSError("illegal operation on a directory", { syscall: "writeFile", code: "EISDIR", path: file });
     }
 

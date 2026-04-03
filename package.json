@@ -18,7 +18,8 @@
     "check": "biome check --unsafe",
     "format": "biome format",
     "lint": "biome lint",
-    "test": "bun test src/*.test.ts"
+    "test": "node --test src/*.test.ts",
+    "coverage": "node --experimental-test-coverage --test src/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.12",

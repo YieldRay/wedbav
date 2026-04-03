@@ -11,7 +11,7 @@ pnpm dev:deno     # Deno with watch mode
 pnpm dev:bun      # Bun with watch mode
 
 # Build & Type checking
-pnpm build        # Build via bun build.ts
+pnpm build:app    # Build via bun build.ts
 pnpm build:lib    # Build library bundle via tsdown
 pnpm type-check   # TypeScript type checking
 
