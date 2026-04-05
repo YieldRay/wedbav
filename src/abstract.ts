@@ -77,16 +77,18 @@ export class VStats implements Stats {
     this[IS_DIRECTORY] = isDirectory;
     this[FULL_PATH] = fullPath;
     this[ETAG] = etag;
+    const cAt = Number(created_at);
+    const mAt = Number(modified_at);
     this.mode = isDirectory ? 16877 : 33206;
-    this.birthtimeMs = created_at;
-    this.atimeMs = modified_at;
-    this.mtimeMs = modified_at;
-    this.ctimeMs = created_at;
-    this.atime = new Date(modified_at);
-    this.mtime = new Date(modified_at);
-    this.ctime = new Date(created_at);
-    this.birthtime = new Date(created_at);
-    this.size = size;
+    this.birthtimeMs = cAt;
+    this.atimeMs = mAt;
+    this.mtimeMs = mAt;
+    this.ctimeMs = cAt;
+    this.atime = new Date(mAt);
+    this.mtime = new Date(mAt);
+    this.ctime = new Date(cAt);
+    this.birthtime = new Date(cAt);
+    this.size = Number(size);
   }
   isFile = (): boolean => !this[IS_DIRECTORY];
   isDirectory = (): boolean => this[IS_DIRECTORY];
