@@ -12,7 +12,7 @@ import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { type Bindings, env } from "./env.ts";
 import { renderManager } from "./manager.ts";
-import { getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { encodePath, getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -137,7 +137,6 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
     // if browser is disabled, or the request is not from a browser, skip
-
     const requestHTML =
       c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
 
@@ -174,11 +173,14 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         throw e;
       });
 
+      const dir = removeSuffixSlash(pathname) || "/";
+
       if (!files) {
-        return c.text("Not Found", 404);
+        // root always shows an empty listing even if the backing directory doesn't exist yet
+        if (pathname !== "/") return c.text("Not Found", 404);
+        return c.html(await renderManager(fs, pathname, dir, []));
       }
 
-      const dir = removeSuffixSlash(pathname) || "/";
       return c.html(await renderManager(fs, pathname, dir, files));
     }
 
@@ -403,7 +405,7 @@ ${files
 
 function davXMLSingleResponse(path: string, contentlength: number, lastmodified: Date, isdir: boolean) {
   return /* xml */ `<d:response>
-    <d:href>${encodeURI(path + (isdir ? "/" : ""))}</d:href>
+    <d:href>${encodePath(path) + (isdir ? "/" : "")}</d:href>
     <d:propstat>
         <d:prop>
             <d:displayname>${getNameFromRawPath(path)}</d:displayname>

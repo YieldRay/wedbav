@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import type { FsSubset } from "./abstract.ts";
-import { escapeXML } from "./utils.ts";
+import { encodePath, escapeXML } from "./utils.ts";
 
 interface EntryInfo {
     name: string;
@@ -28,7 +28,7 @@ function buildBreadcrumb(pathname: string): string {
     let accumulated = "";
     for (const seg of segments) {
         accumulated += `/${seg}`;
-        parts.push(`<span aria-hidden="true">/</span><a href="${encodeURI(accumulated + "/")}">${escapeXML(seg)}</a>`);
+        parts.push(`<span aria-hidden="true">/</span><a href="${encodePath(accumulated) + "/"}">${escapeXML(seg)}</a>`);
     }
     return parts.join("");
 }
@@ -42,10 +42,10 @@ const ICON_PENCIL = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height=
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
 function buildRow(entry: EntryInfo, pathname: string): string {
-    const fullPath = pathname + entry.name + (entry.isDir ? "/" : "");
     const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
     const escapedName = escapeXML(entry.name);
-    const escapedPath = escapeXML(fullPath);
+    // data-path must be URL-encoded: fetch() treats # as fragment and ? as query if unencoded
+    const encodedPath = escapeXML(encodePath(pathname) + encodeURIComponent(entry.name) + (entry.isDir ? "/" : ""));
     const formattedDate = formatDate(entry.mtime);
     const formattedSize = entry.isDir ? "" : formatSize(entry.size);
     const displayName = escapedName + (entry.isDir ? "/" : "");
@@ -57,9 +57,9 @@ function buildRow(entry: EntryInfo, pathname: string): string {
         <span class="meta-size">${formattedSize}</span>
         <span class="meta-date">${formattedDate}</span>
         <span class="actions">
-          ${entry.isDir ? `<a class="download-btn btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</a>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
-          <button class="rename-btn" data-path="${escapedPath}" data-isdir="${entry.isDir ? "1" : "0"}" title="Rename">${ICON_PENCIL}</button>
-          <button class="delete-btn" data-path="${escapedPath}" title="Delete">${ICON_TRASH}</button>
+          ${entry.isDir ? `<span class="btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
+          <button class="rename-btn" data-path="${encodedPath}" data-isdir="${entry.isDir ? "1" : "0"}" title="Rename">${ICON_PENCIL}</button>
+          <button class="delete-btn" data-path="${encodedPath}" title="Delete">${ICON_TRASH}</button>
         </span>
       </span>
     </li>`;
@@ -99,15 +99,15 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         <span class="meta-size"></span>
         <span class="meta-date"></span>
         <span class="actions">
-          <a class="download-btn btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</a>
-          <button class="rename-btn btn-placeholder" disabled></button>
-          <button class="delete-btn btn-placeholder" disabled></button>
+          <span class="btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</span>
+          <span class="btn-placeholder" aria-hidden="true">${ICON_PENCIL}</span>
+          <span class="btn-placeholder" aria-hidden="true">${ICON_TRASH}</span>
         </span>
       </span>
     </li>`
             : "";
     const breadcrumb = buildBreadcrumb(normalizedPathname);
-    const pathnameJson = JSON.stringify(normalizedPathname);
+    const pathnameJson = JSON.stringify(encodePath(normalizedPathname));
 
     return `<!doctype html>
 <html lang="en">
@@ -139,8 +139,10 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       .toolbar input[type="file"] { max-width: 180px; padding: 0; }
       .toolbar input[type="text"] { width: 150px; }
       @media (max-width: 560px) {
-        .toolbar input[type="file"] { max-width: 130px; }
-        .toolbar input[type="text"] { width: 110px; }
+        .toolbar { flex-direction: column; }
+        .toolbar fieldset { width: 100%; box-sizing: border-box; }
+        .toolbar input[type="file"] { flex: 1; max-width: none; min-width: 0; }
+        .toolbar input[type="text"] { flex: 1; width: auto; min-width: 0; }
       }
 
       .file-list { margin: 0; }
@@ -182,8 +184,11 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         border-radius: 4px; display: flex; align-items: center;
         transition: background 0.1s;
       }
+      .file-list .actions span.btn-placeholder {
+        padding: 0.2rem; display: flex; align-items: center;
+      }
       .file-list .actions button:hover, .file-list .actions a.download-btn:hover { background: var(--landsoul-surface); }
-      .file-list .actions button svg, .file-list .actions a.download-btn svg { width: 1rem; height: 1rem; opacity: 0.5; }
+      .file-list .actions button svg, .file-list .actions a.download-btn svg, .file-list .actions span.btn-placeholder svg { width: 1rem; height: 1rem; opacity: 0.5; }
       .file-list .actions button:hover svg, .file-list .actions a.download-btn:hover svg { opacity: 0.85; }
       .file-list .actions .delete-btn svg { color: var(--landsoul-danger); opacity: 0.7; }
       .file-list .actions .delete-btn:hover svg { opacity: 1; }
@@ -247,7 +252,8 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       const PATHNAME = ${pathnameJson};
 
       function lastName(path) {
-        return path.split("/").filter(Boolean).pop() || path;
+        const seg = path.split("/").filter(Boolean).pop() || path;
+        try { return decodeURIComponent(seg); } catch { return seg; }
       }
 
       document.getElementById("file-list").addEventListener("click", function(e) {

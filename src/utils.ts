@@ -41,11 +41,19 @@ export function getPathnameFromURL(url: string | URL) {
 }
 
 export function decodeURISafe(uri: string): string {
-  try {
-    return decodeURI(uri);
-  } catch {
-    return uri;
-  }
+  // Decode each segment individually so %2F within a segment doesn't collapse path separators
+  return uri.split("/").map((seg) => {
+    try {
+      return decodeURIComponent(seg);
+    } catch {
+      return seg;
+    }
+  }).join("/");
+}
+
+/** Percent-encode each path segment (preserving `/` separators) for use in URLs and WebDAV hrefs. */
+export function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 export function escapeXML(str: string) {

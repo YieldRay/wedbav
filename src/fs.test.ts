@@ -808,4 +808,69 @@ describe("KyselyFs", () => {
       assert.equal(s.isFile(), true);
     });
   });
+
+  describe("URL-reserved character filenames", () => {
+    // These names are stored literally in the DB — the server decodes URLs before
+    // calling fs methods, so the fs always sees the real decoded name.
+    const specialNames = [
+      "@at", "#hash", "&amp", "=eq", "+plus", "hello world",
+      "%percent", "!bang", "a&b=c", "foo#bar", "😀emoji", "привет",
+    ];
+
+    for (const name of specialNames) {
+      it(`writeFile + readFile: "${name}"`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/special/${name}.txt`, `content of ${name}`);
+        const buf = await fs.readFile(`/special/${name}.txt`);
+        assert.equal(buf.toString(), `content of ${name}`);
+      });
+
+      it(`stat: "${name}"`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/special/${name}.txt`, "x");
+        const s = await fs.stat(`/special/${name}.txt`);
+        assert.equal(s.isFile(), true);
+        assert.equal(s.size, 1);
+      });
+
+      it(`readdir includes "${name}"`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/special/${name}.txt`, "x");
+        const entries = await fs.readdir("/special");
+        assert.ok(entries.includes(`${name}.txt`), `expected "${name}.txt" in readdir`);
+      });
+
+      it(`unlink: "${name}"`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/special/${name}.txt`, "x");
+        await fs.unlink(`/special/${name}.txt`);
+        await assert.rejects(
+          () => fs.stat(`/special/${name}.txt`),
+          (err: VFSError) => { assert.equal(err.code, "ENOENT"); return true; },
+        );
+      });
+
+      it(`rename: "${name}"`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/special/${name}.txt`, "data");
+        await fs.rename(`/special/${name}.txt`, `/special/${name}-renamed.txt`);
+        await assert.rejects(() => fs.stat(`/special/${name}.txt`));
+        const buf = await fs.readFile(`/special/${name}-renamed.txt`);
+        assert.equal(buf.toString(), "data");
+      });
+    }
+
+    it("readdir returns exact literal names (not URL-encoded)", async () => {
+      const fs = createFs();
+      await fs.writeFile("/special/@foo.txt", "a");
+      await fs.writeFile("/special/#bar.txt", "b");
+      await fs.writeFile("/special/&baz.txt", "c");
+      const entries = await fs.readdir("/special");
+      assert.ok(entries.includes("@foo.txt"));
+      assert.ok(entries.includes("#bar.txt"));
+      assert.ok(entries.includes("&baz.txt"));
+      assert.ok(!entries.includes("%40foo.txt"), "should not be URL-encoded");
+      assert.ok(!entries.includes("%23bar.txt"), "should not be URL-encoded");
+    });
+  });
 });

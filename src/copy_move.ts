@@ -2,7 +2,7 @@ import { STATUS_CODES } from "node:http";
 import path from "node:path/posix";
 import type { Context } from "hono";
 import type { FsSubset } from "./abstract.ts";
-import { escapeXML, getPathnameFromURL, isErrnoException, mapErrnoToStatus, removeSuffixSlash } from "./utils.ts";
+import { encodePath, escapeXML, getPathnameFromURL, isErrnoException, mapErrnoToStatus, removeSuffixSlash } from "./utils.ts";
 import type { WedbavContext } from "./wedbav.ts";
 
 export type WebdavContext = Context<WedbavContext>;
@@ -73,7 +73,7 @@ export async function handleCopyMoveRequest(c: WebdavContext, type: "COPY" | "MO
   const status = result.destinationExisted ? 204 : 201;
   if (status === 201) {
     return c.body("Created", 201, {
-      Location: encodeURI(destPathname),
+      Location: encodePath(destPathname),
     });
   }
   return c.body(null, 204);
@@ -383,7 +383,7 @@ export function multiStatusXML(errors: CopyError[]) {
         ? /* xml */ `\n    <d:responsedescription>${escapeXML(description)}</d:responsedescription>`
         : "";
       return /* xml */ `<d:response>
-    <d:href>${encodeURI(href)}</d:href>
+    <d:href>${encodePath(href)}</d:href>
     <d:status>HTTP/1.1 ${status} ${reason}</d:status>${desc}
 </d:response>`;
     })
