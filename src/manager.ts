@@ -37,28 +37,29 @@ function buildBreadcrumb(pathname: string): string {
 const ICON_FOLDER = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="entry-icon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
 const ICON_FILE = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="entry-icon"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/></svg>`;
 const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="entry-icon"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`;
+const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`;
 const ICON_PENCIL = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
 function buildRow(entry: EntryInfo, pathname: string): string {
     const fullPath = pathname + entry.name + (entry.isDir ? "/" : "");
     const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
-    const displayName = escapeXML(entry.name) + (entry.isDir ? "/" : "");
-    const rowLink = entry.isDir
-        ? `<a class="row-link" href="${href}" aria-label="${escapeXML(entry.name)}"></a>`
-        : `<a class="row-link" href="${href}" download aria-label="${escapeXML(entry.name)}"></a>`;
-    const meta = entry.isDir
-        ? `<span class="meta">${formatDate(entry.mtime)}</span>`
-        : `<span class="meta">${formatSize(entry.size)}<span class="meta-sep">·</span>${formatDate(entry.mtime)}</span>`;
+    const escapedName = escapeXML(entry.name);
+    const escapedPath = escapeXML(fullPath);
+    const formattedDate = formatDate(entry.mtime);
+    const formattedSize = entry.isDir ? "" : formatSize(entry.size);
+    const displayName = escapedName + (entry.isDir ? "/" : "");
 
     return `<li class="file-row">
-      ${rowLink}
+      <a class="row-link" href="${href}" aria-label="${escapedName}"></a>
       <span class="row-inner">
-        <span class="name">${entry.isDir ? ICON_FOLDER : ICON_FILE}<span>${displayName}</span></span>
-        ${meta}
+        <span class="name">${entry.isDir ? ICON_FOLDER : ICON_FILE}<span class="name-inner"><span class="name-text">${displayName}</span><span class="meta-sub">${formattedDate}${entry.isDir ? "" : `<span class="meta-sub-sep">·</span><span class="meta-sub-size">${formattedSize}</span>`}</span></span></span>
+        <span class="meta-size">${formattedSize}</span>
+        <span class="meta-date">${formattedDate}</span>
         <span class="actions">
-          <button class="rename-btn" data-path="${escapeXML(fullPath)}" data-isdir="${entry.isDir ? "1" : "0"}" title="Rename">${ICON_PENCIL}</button>
-          <button class="delete-btn" data-path="${escapeXML(fullPath)}" title="Delete">${ICON_TRASH}</button>
+          ${entry.isDir ? `<a class="download-btn btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</a>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
+          <button class="rename-btn" data-path="${escapedPath}" data-isdir="${entry.isDir ? "1" : "0"}" title="Rename">${ICON_PENCIL}</button>
+          <button class="delete-btn" data-path="${escapedPath}" title="Delete">${ICON_TRASH}</button>
         </span>
       </span>
     </li>`;
@@ -94,7 +95,14 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
             ? `<li class="file-row parent-row">
       <a class="row-link" href="../" aria-label="Parent directory"></a>
       <span class="row-inner">
-        <span class="name">${ICON_UP}<span>../</span></span>
+        <span class="name">${ICON_UP}<span class="name-inner"><span class="name-text">../</span></span></span>
+        <span class="meta-size"></span>
+        <span class="meta-date"></span>
+        <span class="actions">
+          <a class="download-btn btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</a>
+          <button class="rename-btn btn-placeholder" disabled></button>
+          <button class="delete-btn btn-placeholder" disabled></button>
+        </span>
       </span>
     </li>`
             : "";
@@ -118,11 +126,12 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         display: flex; align-items: center; gap: 0.2rem;
         font-size: 1rem; font-weight: 500;
         color: var(--landsoul-text-on-surface); margin-bottom: 1.5rem; flex-wrap: wrap;
+        overflow: hidden; word-break: break-all;
       }
-      .breadcrumb a { text-decoration: none; color: var(--landsoul-text-on-surface); }
+      .breadcrumb a { text-decoration: none; color: var(--landsoul-text-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
       .breadcrumb a:last-child { color: var(--landsoul-text); font-weight: 600; }
       .breadcrumb a:not(:last-child):hover { color: var(--landsoul-accent); }
-      .breadcrumb span { margin: 0 0.1rem; opacity: 0.35; }
+      .breadcrumb span { margin: 0 0.1rem; opacity: 0.35; flex-shrink: 0; }
 
       .toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; align-items: stretch; }
       .toolbar fieldset { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.75rem; margin: 0; }
@@ -135,38 +144,50 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       }
 
       .file-list { margin: 0; }
-      .file-list .file-row .row-inner { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-width: 0; }
+      .file-list .file-row .row-inner { display: grid; grid-template-columns: 1fr 4.5rem 9rem auto; align-items: center; column-gap: 0.75rem; width: 100%; min-width: 0; }
       .file-list .file-row { position: relative; }
       .file-list .row-link { position: absolute; inset: 0; z-index: 0; border-radius: inherit; }
-      .file-list .name { flex: 1; min-width: 0; overflow: hidden; pointer-events: none; display: flex; align-items: center; gap: 0.4rem; }
-      .file-list .name span { color: var(--landsoul-accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file-list .name { min-width: 0; overflow: hidden; pointer-events: none; display: flex; align-items: center; gap: 0.4rem; }
+      .file-list .name-inner { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+      .file-list .name-text { color: var(--landsoul-accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file-list .parent-row .name > span { color: var(--landsoul-accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file-list .meta-sub { display: none; }
       .entry-icon { width: 1em; height: 1em; flex-shrink: 0; opacity: 0.45; }
-      .file-list .meta {
+      .file-list .meta-size, .file-list .meta-date {
         white-space: nowrap; font-size: 0.8rem;
-        color: var(--landsoul-text-on-surface); flex-shrink: 0;
+        color: var(--landsoul-text-on-surface);
         position: relative; z-index: 1;
+        font-variant-numeric: tabular-nums;
       }
-      .file-list .meta-sep { margin: 0 0.35rem; opacity: 0.4; }
-      @media (max-width: 560px) { .file-list .meta { display: none; } }
+      .file-list .meta-size { text-align: right; }
+      .file-list .meta-date { text-align: right; }
+      @media (max-width: 560px) {
+        .file-list .file-row .row-inner { grid-template-columns: 1fr auto; }
+        .file-list .actions { align-self: center; }
+        .file-list .meta-size, .file-list .meta-date { display: none; }
+        .file-list .meta-sub { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--landsoul-text-on-surface); font-variant-numeric: tabular-nums; }
+        .file-list .meta-sub-sep { opacity: 0.35; margin: 0 0.25rem; }
+        .file-list .meta-sub-size { opacity: 0.6; }
+      }
 
       .file-list .actions {
         display: inline-flex; gap: 0.25rem; flex-shrink: 0;
         visibility: hidden; position: relative; z-index: 1;
       }
+      .file-list .actions .btn-placeholder { visibility: hidden; pointer-events: none; }
       .file-list .file-row:hover .actions,
       .file-list .file-row:focus-within .actions { visibility: visible; }
-      .file-list .actions button {
+      .file-list .actions button, .file-list .actions a.download-btn {
         all: unset; cursor: pointer; padding: 0.2rem;
         border-radius: 4px; display: flex; align-items: center;
         transition: background 0.1s;
       }
-      .file-list .actions button:hover { background: var(--landsoul-surface); }
-      .file-list .actions button svg { width: 1rem; height: 1rem; opacity: 0.5; }
-      .file-list .actions button:hover svg { opacity: 0.85; }
+      .file-list .actions button:hover, .file-list .actions a.download-btn:hover { background: var(--landsoul-surface); }
+      .file-list .actions button svg, .file-list .actions a.download-btn svg { width: 1rem; height: 1rem; opacity: 0.5; }
+      .file-list .actions button:hover svg, .file-list .actions a.download-btn:hover svg { opacity: 0.85; }
       .file-list .actions .delete-btn svg { color: var(--landsoul-danger); opacity: 0.7; }
       .file-list .actions .delete-btn:hover svg { opacity: 1; }
 
-      .file-list .parent-row .name span { color: var(--landsoul-accent); }
 
       #delete-dialog, #rename-dialog { width: 380px; max-width: calc(100vw - 2rem); padding: 1.5rem; box-sizing: border-box; }
       #delete-dialog > *:first-child, #rename-dialog > *:first-child { margin-top: 0; }
