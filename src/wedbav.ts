@@ -4,7 +4,6 @@ import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { showRoutes } from "hono/dev";
-import { html, raw } from "hono/html";
 import { logger } from "hono/logger";
 import { getMimeType } from "hono/utils/mime";
 import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
@@ -12,7 +11,8 @@ import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
 import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { type Bindings, env } from "./env.ts";
-import { escapeXML, getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { renderManager } from "./manager.ts";
+import { getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -179,40 +179,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       }
 
       const dir = removeSuffixSlash(pathname) || "/";
-
-      return c.html(
-        html`<html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-            <title>Index of ${dir}</title>
-          </head>
-          <body>
-            <h1>Index of ${dir}</h1>
-            <ul>
-              ${dir !== "/" ? html`<li><a href="../">../</a></li>` : ""}
-              ${raw(
-                files
-                  .filter((file) => file.isDirectory())
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map(
-                    (file) =>
-                      `<li><a href="./${encodeURIComponent(file.name)}/">${escapeXML(file.name)}/</a></li>`,
-                  )
-                  .join("\n"),
-              )}
-              ${raw(
-                files
-                  .filter((file) => file.isFile())
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map(
-                    (file) => `<li><a href="./${encodeURIComponent(file.name)}">${escapeXML(file.name)}</a></li>`,
-                  )
-                  .join("\n"),
-              )}
-            </ul>
-          </body>
-        </html>`,
-      );
+      return c.html(await renderManager(fs, pathname, dir, files));
     }
 
     const etag = (stat as VStats)[ETAG];

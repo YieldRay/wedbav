@@ -416,6 +416,10 @@ export function createHonoAPI<Prefix extends string>(
     },
   );
 
+  // Use a custom getPath to gate all API routes behind the Accept header.
+  // Only requests with `Accept: application/json` are routed into this app;
+  // all others resolve to a path that matches nothing, so they fall through
+  // to the WebDAV handlers in the parent app without any conflict.
   const app = new Hono({
     getPath: (req) => {
       const url = new URL(req.url);
