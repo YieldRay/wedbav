@@ -16,7 +16,13 @@ import { encodePath, getPathnameFromURL, isErrnoException, normalizePathLike, re
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
-  /** @default {"disabled"} */
+  /**
+   * Whether to enable the browser feature that serves files and directories as a static file server. It will only serve requests from browsers (based on Accept and User-Agent header).
+   * - "disabled": do not serve files and directories, return 404 instead. This is the default value.
+   * - "enabled": serve files and directories. If a directory does not contain an index.html, it will return 404.
+   * - "list": serve files and directories. If a directory does not contain an index.html, it will return a listing of the directory.
+   * @default {"disabled"}
+   */
   browser?: "list" | "enabled" | "disabled";
   port?: number;
 }
@@ -139,10 +145,12 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     // if browser is disabled, or the request is not from a browser, skip
     const requestHTML =
       c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-
     if (browser === "disabled" || !requestHTML) {
+      // we go to the next middleware, which is the auth middleware
+      // so all GET files requests are protected.
       return next();
     }
+
     // now, browser is either "list" or "enabled", and the request is from a browser
     const { pathname } = c.var;
 
