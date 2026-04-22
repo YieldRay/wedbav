@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import type { FsSubset } from "./abstract.ts";
-import { encodePath, escapeXML } from "./utils.ts";
+import { escapeXML } from "./xml.ts";
+import { encodePath } from "./utils.ts";
 
 interface EntryInfo {
     name: string;

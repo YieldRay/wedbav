@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
-import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { showRoutes } from "hono/dev";
@@ -12,7 +11,15 @@ import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { type Bindings, env } from "./env.ts";
 import { renderManager } from "./manager.ts";
-import { encodePath, getPathnameFromURL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import {
+  convertToWebStream,
+  getPathnameFromURL,
+  isErrnoException,
+  normalizePathLike,
+  readBufferOrStream,
+  removeSuffixSlash,
+} from "./utils.ts";
+import { davXML } from "./xml.ts";
 
 export interface WedbavOptions {
   auth?: (username: string, password: string) => boolean;
@@ -372,76 +379,10 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   return app;
 }
 
-function getNameFromRawPath(path: string) {
-  return removeSuffixSlash(path).split("/").pop() || "/";
-}
-
-const THRESHOLD = 1024 * 1024; // 1MB
-async function readBufferOrStream(fs: FsSubset, pathname: string, stat?: { size: number }) {
-  stat ??= await fs.stat(pathname);
-  if (stat.size > THRESHOLD) {
-    const stream = fs.createReadStream(pathname);
-    return {
-      body: stream,
-      stat,
-    };
-  } else {
-    const buffer = (await fs.readFile(pathname)) as unknown as Uint8Array;
-    return {
-      body: buffer,
-      stat,
-    };
-  }
-}
-
-function davXML(
-  date: Date,
-  dir: string,
-  filesOrThisIsFile: Array<{ path: string; contentlength: number; lastmodified: Date; isdir: boolean }> | true = [],
-) {
-  const files = filesOrThisIsFile === true ? [] : filesOrThisIsFile;
-  const isDir = filesOrThisIsFile !== true;
-
-  return /* xml */ `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<d:multistatus xmlns:d="DAV:">
-${davXMLSingleResponse(dir, 0, date, isDir)}
-${files
-  .map(({ path, contentlength, lastmodified, isdir }) => davXMLSingleResponse(path, contentlength, lastmodified, isdir))
-  .join("\n")}    
-</d:multistatus>`;
-}
-
-function davXMLSingleResponse(path: string, contentlength: number, lastmodified: Date, isdir: boolean) {
-  return /* xml */ `<d:response>
-    <d:href>${encodePath(path) + (isdir ? "/" : "")}</d:href>
-    <d:propstat>
-        <d:prop>
-            <d:displayname>${getNameFromRawPath(path)}</d:displayname>
-            <d:getcontentlength>${contentlength}</d:getcontentlength>
-            <d:getlastmodified>${lastmodified.toUTCString()}</d:getlastmodified>
-            <d:resourcetype>${isdir ? "<d:collection/>" : ""}</d:resourcetype>${
-              isdir
-                ? "<d:getcontenttype>httpd/unix-directory</d:getcontenttype>"
-                : "<d:getcontenttype>application/octet-stream</d:getcontenttype>"
-            }
-        </d:prop>
-        <d:status>HTTP/1.1 200 OK</d:status>
-    </d:propstat>
-</d:response>`;
-}
-
 function displayVersion(): string {
   for (const k of ["deno", "bun", "node"]) {
     const v = process.versions[k];
     if (v) return `${k} v${v}`;
   }
   throw new Error("unreachable");
-}
-
-function convertToWebStream(body: Readable | Uint8Array<ArrayBufferLike>) {
-  if (body instanceof Readable) {
-    return Readable.toWeb(body) as unknown as ReadableStream<Uint8Array>;
-  } else {
-    return body as unknown as Uint8Array<ArrayBuffer>;
-  }
 }

@@ -2,7 +2,8 @@ import { STATUS_CODES } from "node:http";
 import path from "node:path/posix";
 import type { Context } from "hono";
 import type { FsSubset } from "./abstract.ts";
-import { encodePath, escapeXML, getPathnameFromURL, isErrnoException, mapErrnoToStatus, removeSuffixSlash } from "./utils.ts";
+import { escapeXML } from "./xml.ts";
+import { encodePath, getPathnameFromURL, isErrnoException, mapErrnoToStatus, removeSuffixSlash } from "./utils.ts";
 import type { WedbavContext } from "./wedbav.ts";
 
 export type WebdavContext = Context<WedbavContext>;

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import type { PathLike } from "node:fs";
+import type { PathLike, Stats } from "node:fs";
 import path from "node:path/posix";
+import { Readable } from "node:stream";
+import type { FsSubset } from "./abstract.ts";
 
 export async function createEtag(content: Uint8Array) {
   // async for future use
@@ -32,23 +34,22 @@ export function encodePathForSQL(key: string) {
   return key.replace(sqlWildcardChars, String.raw`\\$&`);
 }
 
-export function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && "syscall" in error && "path" in error;
-}
-
 export function getPathnameFromURL(url: string | URL) {
   return decodeURISafe(new URL(url).pathname);
 }
 
 export function decodeURISafe(uri: string): string {
   // Decode each segment individually so %2F within a segment doesn't collapse path separators
-  return uri.split("/").map((seg) => {
-    try {
-      return decodeURIComponent(seg);
-    } catch {
-      return seg;
-    }
-  }).join("/");
+  return uri
+    .split("/")
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join("/");
 }
 
 /** Percent-encode each path segment (preserving `/` separators) for use in URLs and WebDAV hrefs. */
@@ -56,20 +57,8 @@ export function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
-export function escapeXML(str: string) {
-  const map: Record<string, string> = {
-    ">": "&gt;",
-    "<": "&lt;",
-    "'": "&apos;",
-    '"': "&quot;",
-    "&": "&amp;",
-  };
-  let result = "";
-  for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
-    result += map[ch] || ch;
-  }
-  return result;
+export function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && "syscall" in error && "path" in error;
 }
 
 export function mapErrnoToStatus(error: NodeJS.ErrnoException) {
@@ -92,5 +81,31 @@ export function mapErrnoToStatus(error: NodeJS.ErrnoException) {
       return 507;
     default:
       return 500;
+  }
+}
+
+const THRESHOLD = 1024 * 1024; // 1MB
+export async function readBufferOrStream(fs: FsSubset, pathname: string, stat?: Stats) {
+  stat ??= await fs.stat(pathname);
+  if (stat.size > THRESHOLD) {
+    const stream = fs.createReadStream(pathname);
+    return {
+      body: stream,
+      stat,
+    };
+  } else {
+    const buffer = (await fs.readFile(pathname)) as unknown as Uint8Array;
+    return {
+      body: buffer,
+      stat,
+    };
+  }
+}
+
+export function convertToWebStream(body: Readable | Uint8Array<ArrayBufferLike>) {
+  if (body instanceof Readable) {
+    return Readable.toWeb(body) as unknown as ReadableStream<Uint8Array>;
+  } else {
+    return body as unknown as Uint8Array<ArrayBuffer>;
   }
 }
