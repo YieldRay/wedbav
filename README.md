@@ -92,7 +92,7 @@ app.route("/files", webdavApp);
 | Option    | Type                                      | Default             | Description                                                             |
 | --------- | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------- |
 | `port`    | `number`                                  | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                         |
-| `browser` | `"disabled" \| "list" \| "enabled"`       | `"disabled"`        | `list` shows directory listing; `enabled` also serves files inline      |
+| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"`       | `"disabled"`        | `public` shows directory listing; `list` is alias to `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
 | `auth`    | `(user: string, pass: string) => boolean` | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD` |
 
 ## Self-hosted deployment
@@ -113,7 +113,7 @@ AUTH_TOKEN=eyJhb...
 PORT=3000
 WEDBAV_USERNAME=admin
 WEDBAV_PASSWORD=secret
-WEDBAV_BROWSER=list        # disabled | list | enabled
+WEDBAV_BROWSER=public      # disabled | public | list | enabled | private
 WEDBAV_TABLE=filesystem    # custom table name
 ```
 

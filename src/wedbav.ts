@@ -27,10 +27,12 @@ export interface WedbavOptions {
    * Whether to enable the browser feature that serves files and directories as a static file server. It will only serve requests from browsers (based on Accept and User-Agent header).
    * - "disabled": do not serve files and directories, return 404 instead. This is the default value.
    * - "enabled": serve files and directories. If a directory does not contain an index.html, it will return 404.
-   * - "list": serve files and directories. If a directory does not contain an index.html, it will return a listing of the directory.
+   * - "public": serve files and directories. If a directory does not contain an index.html, it will return a listing of the directory.
+   * - "list": alias to "public".
+   * - "private": like "public", but requires basic auth.
    * @default {"disabled"}
    */
-  browser?: "list" | "enabled" | "disabled";
+  browser?: "public" | "list" | "enabled" | "disabled" | "private";
   port?: number;
 }
 
@@ -146,26 +148,13 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 </html>`);
   });
 
-  // browser feature, this part do not require auth
-  app.get("/*", async (c, next) => {
-    const { browser = "disabled" } = options;
-    // if browser is disabled, or the request is not from a browser, skip
-    const requestHTML =
-      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-    if (browser === "disabled" || !requestHTML) {
-      // we go to the next middleware, which is the auth middleware
-      // so all GET files requests are protected.
-      return next();
-    }
-
-    // now, browser is either "list" or "enabled", and the request is from a browser
+  const handleBrowserFeature = async (c: Context<WedbavContext>) => {
     const { pathname } = c.var;
 
     let filepath = pathname;
     if (pathname === "/") filepath = "/index.html";
     else if (pathname.endsWith("/")) filepath += "index.html";
 
-    // browser can only be "enabled" or "list"
     let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
     try {
       stat = await fs.stat(filepath);
@@ -178,11 +167,11 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     // when this is a directory
     if (!stat?.isFile()) {
       // do not list directory
-      if (options.browser !== "list") {
+      if (options.browser !== "list" && options.browser !== "public" && options.browser !== "private") {
         return c.text("Not Found", 404);
       }
 
-      // here browser is "list" and the file does not exist, we return an index of the directory
+      // here browser is "list", "public" or "private" and the file does not exist, we return an index of the directory
       const files = await fs.readdir(pathname, { withFileTypes: true }).catch((e) => {
         if (isErrnoException(e)) return false as const;
         throw e;
@@ -236,6 +225,21 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       }
       throw e;
     }
+  };
+
+  // browser feature, this part do not require auth
+  app.get("/*", async (c, next) => {
+    const { browser = "disabled" } = options;
+    // if browser is disabled/private, or the request is not from a browser, skip
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+    if (browser === "disabled" || browser === "private" || !requestHTML) {
+      // we go to the next middleware, which is the auth middleware
+      // so all GET files requests are protected.
+      return next();
+    }
+
+    return handleBrowserFeature(c);
   });
 
   // basic auth
@@ -265,6 +269,17 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       },
     }),
   );
+
+  // browser feature for private (requires auth)
+  app.get("/*", async (c, next) => {
+    const { browser = "disabled" } = options;
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+    if (browser === "private" && requestHTML) {
+      return handleBrowserFeature(c);
+    }
+    return next();
+  });
 
   // api routes
   app.route("/", api);

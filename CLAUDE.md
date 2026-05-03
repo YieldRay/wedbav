@@ -71,6 +71,6 @@ Kysely ORM → SQLite / PostgreSQL / MySQL
 - **Implicit directories**: A file at `/a/b/c.txt` makes `/a/` and `/a/b/` exist without database rows. `KyselyFs` uses LIKE queries to infer these.
 - **Streaming**: Files ≥ 1MB use `createReadStream()`; smaller files use buffer. The WebDAV GET handler checks `Content-Length` to decide.
 - **ETags**: SHA256 of content, stored in the `etag` column. Conditional requests (`If-None-Match`, `If-Match`) are handled in `wedbav.ts`.
-- **Browser mode**: Controlled by `WEDBAV_BROWSER` env (`disabled` | `list` | `enabled`). `list` shows directory listing; `enabled` also serves files inline.
+- **Browser mode**: Controlled by `WEDBAV_BROWSER` env (`disabled` | `public` | `list` | `enabled` | `private`). `public` (or `list`) shows directory listing; `private` is the same but requires auth; `enabled` also serves files inline.
 - **Module system**: `"moduleResolution": "NodeNext"` + `"rewriteRelativeImportExtensions": true` — imports use `.ts` extensions in source.
 - **Formatter**: Biome, 120-char line width, double quotes, spaces for indentation.
