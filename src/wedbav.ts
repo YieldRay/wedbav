@@ -152,8 +152,16 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     const { pathname } = c.var;
 
     let filepath = pathname;
-    if (pathname === "/") filepath = "/index.html";
-    else if (pathname.endsWith("/")) filepath += "index.html";
+
+    // we auto append index.html for requests that look like from browsers (based on Accept and User-Agent header)
+    // actually this logic is of no use, but just add it here
+    // anyway, we will fallback to the webdav /GET logic, if there is no handleBrowserFeature function
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+    if (requestHTML) {
+      if (pathname === "/") filepath = "/index.html";
+      else if (pathname.endsWith("/")) filepath += "index.html";
+    }
 
     let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
     try {
@@ -210,14 +218,12 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     try {
       const { body } = await readBufferOrStream(fs, filepath, stat);
-      let contentType = getMimeType(filepath);
-      if (contentType?.startsWith("text/")) {
-        contentType += "; charset=UTF-8";
-      }
+      const contentType = getMimeType(filepath) || "application/octet-stream";
+
       return c.body(convertToWebStream(body), 200, {
         "last-modified": stat.mtime.toUTCString(),
         "content-length": stat.size.toString(),
-        "content-type": contentType || "application/octet-stream",
+        "content-type": contentType,
       });
     } catch (e) {
       if (isErrnoException(e)) {
@@ -230,10 +236,8 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   // browser feature, this part do not require auth
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
-    // if browser is disabled/private, or the request is not from a browser, skip
-    const requestHTML =
-      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-    if (browser === "disabled" || browser === "private" || !requestHTML) {
+    // if browser is disabled/private, skip
+    if (browser === "disabled" || browser === "private") {
       // we go to the next middleware, which is the auth middleware
       // so all GET files requests are protected.
       return next();
@@ -273,9 +277,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   // browser feature for private (requires auth)
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
-    const requestHTML =
-      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-    if (browser === "private" && requestHTML) {
+    if (browser === "private") {
       return handleBrowserFeature(c);
     }
     return next();

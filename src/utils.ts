@@ -2,7 +2,25 @@ import { createHash } from "node:crypto";
 import type { PathLike, Stats } from "node:fs";
 import path from "node:path/posix";
 import { Readable } from "node:stream";
+import { mimes } from "hono/utils/mime";
 import type { FsSubset } from "./abstract.ts";
+
+Object.assign(mimes, {
+  md: "text/markdown",
+  mdx: "text/markdown",
+  markdown: "text/markdown",
+  tsx: "text/typescript",
+  ts: "text/typescript",
+  mts: "text/typescript",
+  cts: "text/typescript",
+  sh: "text/x-sh",
+  csh: "text/x-csh",
+  ico: "image/vnd.microsoft.icon",
+  sha256: "text/plain",
+  sha512: "text/plain",
+  sha256sum: "text/plain",
+  sha512sum: "text/plain",
+});
 
 export async function createEtag(content: Uint8Array) {
   // async for future use
