@@ -70,13 +70,13 @@ export class VStats implements Stats {
       modified_at,
       size,
       etag,
-    }: Pick<FilesystemTable, "created_at" | "modified_at" | "size"> & { etag?: string },
+    }: Pick<FilesystemTable, "created_at" | "modified_at" | "size"> & { etag?: string | null },
     fullPath: string,
     isDirectory = false,
   ) {
     this[IS_DIRECTORY] = isDirectory;
     this[FULL_PATH] = fullPath;
-    this[ETAG] = etag;
+    this[ETAG] = etag || undefined;
     const cAt = Number(created_at);
     const mAt = Number(modified_at);
     this.mode = isDirectory ? 16877 : 33206;

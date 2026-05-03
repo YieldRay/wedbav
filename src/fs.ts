@@ -22,7 +22,7 @@ export interface FilesystemTable {
   created_at: number;
   modified_at: number;
   size: number;
-  etag: string;
+  etag: string | null;
   content: Uint8Array | null;
   meta: string | null;
 }
@@ -80,7 +80,7 @@ class KyselyFs implements FsSubset {
       .addColumn("created_at", "bigint", (col) => col.notNull())
       .addColumn("modified_at", "bigint", (col) => col.notNull())
       .addColumn("size", "integer", (col) => col.notNull())
-      .addColumn("etag", "varchar(1024)", (col) => col.notNull())
+      .addColumn("etag", "varchar(1024)")
       .addColumn("content", this._dbType === "pg" ? "bytea" : "blob")
       .addColumn("meta", "text")
       .execute();
@@ -375,7 +375,7 @@ class KyselyFs implements FsSubset {
         created_at: now,
         modified_at: now,
         size: 0,
-        etag: "",
+        etag: null,
         content: null,
         meta: null,
       })
