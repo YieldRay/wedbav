@@ -27,11 +27,13 @@ export interface FilesystemTable {
   meta: string | null;
 }
 
+export type DB_Type = "sqlite" | "mysql" | "pg";
+
 class KyselyFs implements FsSubset {
   /** DO NOT use it directly, use $xxx */
   private readonly _tableName: string;
   private readonly _db: Kysely<Database>;
-  private readonly _dbType: "sqlite" | "mysql" | "pg";
+  private readonly _dbType: DB_Type;
   private get $insert() {
     return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
   }
@@ -51,7 +53,7 @@ class KyselyFs implements FsSubset {
       /** @default DEFAULT_TABLE_NAME */
       tableName?: string;
       /** @default "sqlite" */
-      dbType?: "sqlite" | "mysql" | "pg";
+      dbType?: DB_Type;
     },
   ) {
     const { tableName = DEFAULT_TABLE_NAME, dbType = "sqlite" } = options;

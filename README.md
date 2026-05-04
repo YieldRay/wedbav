@@ -89,25 +89,27 @@ app.route("/files", webdavApp);
 
 ### `WedbavOptions`
 
-| Option    | Type                                      | Default             | Description                                                             |
-| --------- | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------- |
-| `port`    | `number`                                  | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                         |
-| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"`       | `"disabled"`        | `public` shows directory listing; `list` is alias to `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
-| `auth`    | `(user: string, pass: string) => boolean` | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD` |
+| Option    | Type                                                         | Default             | Description                                                                                                                                           |
+| --------- | ------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `port`    | `number`                                                     | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                       |
+| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"` | `"disabled"`        | `public` shows directory listing; `list` is alias to `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
+| `auth`    | `(user: string, pass: string) => boolean`                    | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                               |
 
 ## Self-hosted deployment
 
 Set environment variables as needed:
 
-> If no database env is set, a local SQLite file (`local.db`) is used.
+> If no database env is set, in-memory SQLite (`:memory:`) is used.
 
 ```bash
 # PostgreSQL
-DATABASE_URL_POSTGRES=postgresql://user:pass@host/db
+WEDBAV_CONNECTION_STRING=postgresql://user:pass@host/db
 
 # LibSQL / Turso
-LIBSQL_URL=libsql://your-db.turso.io
-AUTH_TOKEN=eyJhb...
+WEDBAV_CONNECTION_STRING=libsql://authToken:eyJhbXXXXXX@your-db.turso.io
+
+# SQLite (file-based)
+WEDBAV_CONNECTION_STRING=file:/path/to/database.db
 
 # Optional
 PORT=3000

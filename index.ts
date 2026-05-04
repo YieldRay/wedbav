@@ -1,33 +1,21 @@
 import "hono"; // for vercel
-import { LibsqlDialect } from "@libsql/kysely-libsql";
+
 import { attachDatabasePool } from "@vercel/functions";
-import { PostgresDialect } from "kysely";
-import { Pool } from "pg";
 import { env } from "./src/env.ts";
 import { createKyselyFs } from "./src/fs.ts";
 import { createHono, type WedbavOptions } from "./src/wedbav.ts";
+import { dialectFromConnectionStringForVercel } from "./src/connection-string.ts";
 
-const isPg = !!env.DATABASE_URL_POSTGRES;
-
-const pool = new Pool({
-  connectionString: env.DATABASE_URL_POSTGRES,
-});
+const { dialect, pool, dbType } = dialectFromConnectionStringForVercel(env.WEDBAV_CONNECTION_STRING!);
 
 /** https://vercel.com/guides/connection-pooling-with-functions */
-if (isPg) {
+if (dbType === "pg") {
   attachDatabasePool(pool);
 }
 
-const dialect = isPg
-  ? new PostgresDialect({ pool })
-  : new LibsqlDialect({
-      url: env.LIBSQL_URL || "file:local.db",
-      authToken: env.AUTH_TOKEN,
-    });
-
 const kyselyFs = createKyselyFs(dialect, {
   tableName: env.WEDBAV_TABLE,
-  dbType: isPg ? "pg" : "sqlite",
+  dbType,
 });
 
 const browser = env.WEDBAV_BROWSER as WedbavOptions["browser"];

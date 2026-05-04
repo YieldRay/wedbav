@@ -8,10 +8,7 @@ export type Bindings = {
   WEDBAV_BROWSER?: WedbavOptions["browser"];
   WEDBAV_TABLE?: string;
 
-  LIBSQL_URL?: string;
-  AUTH_TOKEN?: string;
-
-  DATABASE_URL_POSTGRES?: string;
+  WEDBAV_CONNECTION_STRING?: string;
 };
 
 /**
