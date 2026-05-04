@@ -6,7 +6,14 @@ import { createKyselyFs } from "./src/fs.ts";
 import { createHono, type WedbavOptions } from "./src/wedbav.ts";
 import { dialectFromConnectionStringForVercel } from "./src/connection-string.ts";
 
-const { dialect, pool, dbType } = dialectFromConnectionStringForVercel(env.WEDBAV_CONNECTION_STRING!);
+if (!env.WEDBAV_CONNECTION_STRING) {
+  console.warn(
+    "No connection string provided. Please set the WEDBAV_CONNECTION_STRING environment variable to a valid connection string for your database. For example, for PostgreSQL you can use a connection string like `postgresql://user:password@host:port/database`.",
+  );
+  process.exit(1);
+}
+
+const { dialect, pool, dbType } = dialectFromConnectionStringForVercel(env.WEDBAV_CONNECTION_STRING);
 
 /** https://vercel.com/guides/connection-pooling-with-functions */
 if (dbType === "pg") {

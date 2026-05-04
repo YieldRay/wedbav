@@ -13,10 +13,14 @@ export function dialectFromConnectionString(connectionString: string): {
   dbType: DB_Type;
 } {
   if (
+    connectionString === "" ||
     connectionString === "memory" ||
     connectionString.startsWith(":memory:") ||
     connectionString.startsWith("memory:")
   ) {
+    console.warn(
+      "In-memory SQLite is used. Data will not persist across restarts. To use a file-based SQLite database, set the connection string to something like `file:/path/to/mydb.sqlite`.",
+    );
     return {
       dialect: new LibsqlDialect({ url: "file::memory:" }),
       dbType: "sqlite",
