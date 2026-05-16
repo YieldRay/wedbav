@@ -32,7 +32,7 @@ const { outputs, success, logs } = await Bun.build({
   outdir: "./dist",
   target: "node",
   packages: "external",
-  env: values.env as "inline" | "disable" | `${string}*` | undefined,
+  env: values.env as "inline" | "disable" | `${string}*`,
 });
 
 if (!success) {

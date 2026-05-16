@@ -51,9 +51,9 @@ class KyselyFs implements FsSubset {
     dialect: Dialect,
     options: {
       /** @default DEFAULT_TABLE_NAME */
-      tableName?: string;
+      tableName?: string | undefined;
       /** @default "sqlite" */
-      dbType?: DB_Type;
+      dbType?: DB_Type | undefined;
     },
   ) {
     const { tableName = DEFAULT_TABLE_NAME, dbType = "sqlite" } = options;
@@ -88,20 +88,22 @@ class KyselyFs implements FsSubset {
       .execute();
   }
 
-  private async _getFileStats(fileKey: string) {
+  private async _getFileStats(fileKey: string): Promise<VStats | undefined> {
     console.assert(!fileKey.endsWith("/"), "fileKey must not end with /");
     const file = await this.$select
       .select(["created_at", "modified_at", "size", "etag"])
       .where("path", "=", fileKey)
       .executeTakeFirst();
     if (file) return new VStats(file, fileKey);
+    return undefined;
   }
-  private async _getExplicitDirStats(dirKey: string) {
+  private async _getExplicitDirStats(dirKey: string): Promise<VStats | undefined> {
     console.assert(dirKey.endsWith("/"), "dirKey must end with /");
     const dir = await this.$select.select(["created_at", "modified_at"]).where("path", "=", dirKey).executeTakeFirst();
     if (dir) return new VStats({ created_at: dir.created_at, modified_at: dir.modified_at, size: 0 }, dirKey, true);
+    return undefined;
   }
-  private async _getImplicitDirStats(dirKey: string) {
+  private async _getImplicitDirStats(dirKey: string): Promise<VStats | undefined> {
     console.assert(dirKey.endsWith("/"), "dirKey must end with /");
     const dirAgg = await this.$select
       .select(({ fn }) => [
@@ -121,9 +123,10 @@ class KyselyFs implements FsSubset {
 
     // make sure root dir always exists
     if (dirKey === "/") return new VStats({ created_at: 0, modified_at: 0, size: 0 }, dirKey, true);
+    return undefined;
   }
 
-  private async _getDirStats(dirKey: string) {
+  private async _getDirStats(dirKey: string): Promise<VStats | undefined> {
     if (dirKey === "" || dirKey === "/") return this._getImplicitDirStats("/");
 
     console.assert(dirKey.endsWith("/"), "dirKey must end with /");
@@ -133,6 +136,7 @@ class KyselyFs implements FsSubset {
     // Then, check implicit directory from children
     const implicitDir = await this._getImplicitDirStats(dirKey);
     if (implicitDir) return implicitDir;
+    return undefined;
   }
 
   async access(path: PathLike): Promise<void> {
@@ -377,7 +381,7 @@ class KyselyFs implements FsSubset {
         created_at: now,
         modified_at: now,
         size: 0,
-        etag: null,
+        etag: "",
         content: null,
         meta: null,
       })

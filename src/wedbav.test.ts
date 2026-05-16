@@ -82,7 +82,7 @@ describe("PUT → GET round-trip with special chars", () => {
     ["/a+b.txt", "/a%2Bb.txt"],
   ];
 
-  for (const [decodedPath, encodedPath] of files) {
+  for (const [_decodedPath, encodedPath] of files) {
     it(`PUT ${encodedPath} → GET ${encodedPath}`, async () => {
       const { app } = await createApp();
       const putRes = await app.request(req("PUT", encodedPath, { body: "hello" }));

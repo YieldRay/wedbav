@@ -63,8 +63,10 @@ export function dialectFromConnectionString(connectionString: string): {
       const libsqlUrl = new URL(url);
       libsqlUrl.username = "";
       libsqlUrl.password = "";
+      const libsqlHref = libsqlUrl.href;
+
       return {
-        dialect: new LibsqlDialect({ url: libsqlUrl.toString(), authToken }),
+        dialect: new LibsqlDialect(authToken ? { url: libsqlHref, authToken } : { url: libsqlHref }),
         dbType: "sqlite",
       };
     }
@@ -118,8 +120,9 @@ export function dialectFromConnectionStringForVercel(connectionString: string):
       const libsqlUrl = new URL(url);
       libsqlUrl.username = "";
       libsqlUrl.password = "";
+      const libsqlHref = libsqlUrl.href;
       return {
-        dialect: new LibsqlDialect({ url: libsqlUrl.toString(), authToken }),
+        dialect: new LibsqlDialect(authToken ? { url: libsqlHref, authToken } : { url: libsqlHref }),
         dbType: "sqlite",
       };
 

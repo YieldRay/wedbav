@@ -22,7 +22,7 @@ import {
 import { davXML } from "./xml.ts";
 
 export interface WedbavOptions {
-  auth?: (username: string, password: string) => boolean;
+  auth?: ((username: string, password: string) => boolean) | undefined;
   /**
    * Whether to enable the browser feature that serves files and directories as a static file server. It will only serve requests from browsers (based on Accept and User-Agent header).
    * - "disabled": do not serve files and directories, return 404 instead. This is the default value.
@@ -32,8 +32,8 @@ export interface WedbavOptions {
    * - "private": like "public", but requires basic auth.
    * @default {"disabled"}
    */
-  browser?: "public" | "list" | "enabled" | "disabled" | "private";
-  port?: number;
+  browser?: "public" | "list" | "enabled" | "disabled" | "private" | undefined;
+  port?: number | undefined;
 }
 
 type Variables = {

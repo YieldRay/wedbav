@@ -10,7 +10,7 @@ export function escapeXML(str: string) {
   };
   let result = "";
   for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
+    const ch = str[i]!;
     result += map[ch] || ch;
   }
   return result;

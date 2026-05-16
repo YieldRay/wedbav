@@ -253,9 +253,9 @@ describe("KyselyFs", () => {
       await fs.writeFile("/dt/file.txt", "x");
       const entries = await fs.readdir("/dt", { withFileTypes: true });
       assert.equal(entries.length, 1);
-      assert.equal(entries[0].name, "file.txt");
-      assert.equal(entries[0].isFile(), true);
-      assert.equal(entries[0][FULL_PATH as unknown as keyof (typeof entries)[0]] as unknown as string, "/dt/file.txt");
+      assert.equal(entries[0]!.name, "file.txt");
+      assert.equal(entries[0]!.isFile(), true);
+      assert.equal(entries[0]![FULL_PATH as unknown as keyof (typeof entries)[0]] as unknown as string, "/dt/file.txt");
     });
 
     it("returns empty array for empty directory", async () => {
