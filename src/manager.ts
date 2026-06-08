@@ -59,7 +59,7 @@ function buildRow(entry: EntryInfo, pathname: string): string {
         <span class="meta-date">${formattedDate}</span>
         <span class="actions">
           ${entry.isDir ? `<span class="btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
-          <button class="rename-btn" data-path="${encodedPath}" data-isdir="${entry.isDir ? "1" : "0"}" title="Rename">${ICON_PENCIL}</button>
+          ${entry.isDir ? `<button class="rename-btn" data-path="${encodedPath}" data-isdir="1" title="Rename">${ICON_PENCIL}</button>` : `<a class="rename-btn" href="${href}?edit" title="Edit">${ICON_PENCIL}</a>`}
           <button class="delete-btn" data-path="${encodedPath}" title="Delete">${ICON_TRASH}</button>
         </span>
       </span>
@@ -180,7 +180,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       .file-list .actions .btn-placeholder { visibility: hidden; pointer-events: none; }
       .file-list .file-row:hover .actions,
       .file-list .file-row:focus-within .actions { visibility: visible; }
-      .file-list .actions button, .file-list .actions a.download-btn {
+      .file-list .actions button, .file-list .actions a.download-btn, .file-list .actions a.rename-btn {
         all: unset; cursor: pointer; padding: 0.2rem;
         border-radius: 4px; display: flex; align-items: center;
         transition: background 0.1s;
@@ -188,9 +188,9 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       .file-list .actions span.btn-placeholder {
         padding: 0.2rem; display: flex; align-items: center;
       }
-      .file-list .actions button:hover, .file-list .actions a.download-btn:hover { background: var(--landsoul-surface); }
-      .file-list .actions button svg, .file-list .actions a.download-btn svg, .file-list .actions span.btn-placeholder svg { width: 1rem; height: 1rem; opacity: 0.5; }
-      .file-list .actions button:hover svg, .file-list .actions a.download-btn:hover svg { opacity: 0.85; }
+      .file-list .actions button:hover, .file-list .actions a.download-btn:hover, .file-list .actions a.rename-btn:hover { background: var(--landsoul-surface); }
+      .file-list .actions button svg, .file-list .actions a.download-btn svg, .file-list .actions a.rename-btn svg, .file-list .actions span.btn-placeholder svg { width: 1rem; height: 1rem; opacity: 0.5; }
+      .file-list .actions button:hover svg, .file-list .actions a.download-btn:hover svg, .file-list .actions a.rename-btn:hover svg { opacity: 0.85; }
       .file-list .actions .delete-btn svg { color: var(--landsoul-danger); opacity: 0.7; }
       .file-list .actions .delete-btn:hover svg { opacity: 1; }
 
@@ -220,6 +220,11 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         <legend>New Folder</legend>
         <input type="text" id="mkdir-name" placeholder="Folder name" />
         <button id="mkdir-btn">Create</button>
+      </fieldset>
+      <fieldset>
+        <legend>New File</legend>
+        <input type="text" id="mkfile-name" placeholder="File name" />
+        <button id="mkfile-btn">Create</button>
       </fieldset>
     </div>
 
@@ -261,7 +266,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         const btn = e.target.closest("button");
         if (!btn) return;
         if (btn.classList.contains("delete-btn")) openDeleteDialog(btn.dataset.path);
-        if (btn.classList.contains("rename-btn")) openRenameDialog(btn.dataset.path, btn.dataset.isdir === "1");
+        if (btn.classList.contains("rename-btn") && btn.dataset.isdir === "1") openRenameDialog(btn.dataset.path);
       });
 
       let _deletePath = null;
@@ -280,10 +285,9 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       });
       document.getElementById("delete-cancel-btn").addEventListener("click", () => document.getElementById("delete-dialog").close());
 
-      let _renamePath = null, _renameIsDir = false;
-      function openRenameDialog(oldPath, isDir) {
+      let _renamePath = null;
+      function openRenameDialog(oldPath) {
         _renamePath = oldPath;
-        _renameIsDir = isDir;
         const oldName = lastName(oldPath);
         document.getElementById("rename-old-name").textContent = oldName;
         const input = document.getElementById("rename-input");
@@ -296,7 +300,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         const oldName = lastName(_renamePath);
         document.getElementById("rename-dialog").close();
         if (!newName || newName === oldName) return;
-        const newPath = PATHNAME + encodeURIComponent(newName) + (_renameIsDir ? "/" : "");
+        const newPath = PATHNAME + encodeURIComponent(newName) + "/";
         const r = await fetch(_renamePath, { method: "MOVE", headers: { "Destination": location.origin + newPath } });
         if (r.ok || r.status === 201 || r.status === 204) location.reload();
         else alert("Rename failed: " + r.status + " " + await r.text());
@@ -334,6 +338,15 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         else location.reload();
       }
       document.getElementById("upload-btn").addEventListener("click", uploadFiles);
+
+      function createFile() {
+        const name = document.getElementById("mkfile-name").value.trim();
+        if (!name) return;
+        const filePath = PATHNAME + encodeURIComponent(name);
+        window.location.href = filePath + "?edit";
+      }
+      document.getElementById("mkfile-btn").addEventListener("click", createFile);
+      document.getElementById("mkfile-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createFile(); });
     </script>
   </body>
 </html>`;

@@ -10,6 +10,7 @@ import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
 import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
 import { type Bindings, env } from "./env.ts";
+import { renderEditor } from "./editor.ts";
 import { renderManager } from "./manager.ts";
 import {
   convertToWebStream,
@@ -243,6 +244,12 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
       return next();
     }
 
+    // Editor page: /path/to/file?edit (public/list mode — auth handled on save via PUT/MOVE)
+    const url = new URL(c.req.url);
+    if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
+      return c.html(renderEditor(c.var.pathname));
+    }
+
     return handleBrowserFeature(c);
   });
 
@@ -278,6 +285,11 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   app.get("/*", async (c, next) => {
     const { browser = "disabled" } = options;
     if (browser === "private") {
+      // Editor page: /path/to/file?edit
+      const url = new URL(c.req.url);
+      if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
+        return c.html(renderEditor(c.var.pathname));
+      }
       return handleBrowserFeature(c);
     }
     return next();
