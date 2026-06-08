@@ -63,6 +63,7 @@ export function renderEditor(pathname: string): string {
     <script type="module">
       import { EditorView, basicSetup } from "https://esm.sh/codemirror";
       import { EditorState } from "https://esm.sh/@codemirror/state";
+      import { languages } from "https://esm.sh/@codemirror/language-data";
 
       let PATHNAME = ${pathnameJson};
       const PARENT_DIR = ${parentDirJson};
@@ -83,11 +84,20 @@ export function renderEditor(pathname: string): string {
 
       const content = await loadContent();
 
+      // Load language support based on file extension
+      const extensions = [basicSetup];
+      const ext = ORIGINAL_FILENAME.split(".").pop()?.toLowerCase();
+      const lang = ext && languages.find(l => l.extensions.includes(ext) || (l.filename && l.filename.test(ORIGINAL_FILENAME)));
+      if (lang) {
+        const support = await lang.load();
+        extensions.push(support);
+      }
+
       // Initialize CodeMirror
       view = new EditorView({
         state: EditorState.create({
           doc: content,
-          extensions: [basicSetup],
+          extensions,
         }),
         parent: document.getElementById("editor-container"),
       });
