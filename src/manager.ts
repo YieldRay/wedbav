@@ -117,8 +117,8 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${escapeXML(dir)} — wedbav</title>
     <style>
-      @import url(https://cdn.jsdelivr.net/npm/landsoul) layer(landsoul);
-      @import url(https://cdn.jsdelivr.net/npm/landsoul/dist/extra.css) layer(landsoul);
+      @import url(https://raw.esm.sh/landsoul) layer(landsoul);
+      @import url(https://raw.esm.sh/landsoul/dist/extra.css) layer(landsoul);
     </style>
     <style>
       body { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem; }

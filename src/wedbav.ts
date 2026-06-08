@@ -139,7 +139,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   </head>
   <body>
     <div id="app"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script src="https://raw.esm.sh/@scalar/api-reference/dist/browser/standalone.js"></script>
     <script>
       Scalar.createApiReference('#app', {
         content: \`${JSON.stringify(spec)}\`

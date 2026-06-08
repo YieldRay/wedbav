@@ -23,8 +23,8 @@ export function renderEditor(pathname: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Edit ${escapedFilename}</title>
     <style>
-      @import url(https://cdn.jsdelivr.net/npm/landsoul) layer(landsoul);
-      @import url(https://cdn.jsdelivr.net/npm/landsoul/dist/extra.css) layer(landsoul);
+      @import url(https://raw.esm.sh/landsoul) layer(landsoul);
+      @import url(https://raw.esm.sh/landsoul/dist/extra.css) layer(landsoul);
     </style>
     <style>
       * { box-sizing: border-box; }
