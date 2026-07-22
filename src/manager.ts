@@ -29,7 +29,7 @@ function buildBreadcrumb(pathname: string): string {
     let accumulated = "";
     for (const seg of segments) {
         accumulated += `/${seg}`;
-        parts.push(`<span aria-hidden="true">/</span><a href="${encodePath(accumulated) + "/"}">${escapeXML(seg)}</a>`);
+        parts.push(`<span aria-hidden="true">/</span><a href="${encodePath(accumulated)}/">${escapeXML(seg)}</a>`);
     }
     return parts.join("");
 }
@@ -67,7 +67,7 @@ function buildRow(entry: EntryInfo, pathname: string): string {
 }
 
 export async function renderManager(fs: FsSubset, pathname: string, dir: string, files: Dirent[]): Promise<string> {
-    const normalizedPathname = pathname.endsWith("/") ? pathname : pathname + "/";
+    const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
 
     const entries: EntryInfo[] = await Promise.all(
         files.map(async (entry) => {

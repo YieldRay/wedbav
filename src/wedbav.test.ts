@@ -16,7 +16,7 @@ async function createApp() {
   return { app, fs };
 }
 
-const AUTH = "Basic " + btoa("test:test");
+const AUTH = `Basic ${btoa("test:test")}`;
 
 function req(method: string, path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -290,5 +290,222 @@ describe("Location header encoding", () => {
       const location = res.headers.get("Location");
       assert.ok(location?.includes("%23"), `expected encoded # in Location: ${location}`);
     }
+  });
+});
+
+// ─── I. WebDAV behavioral semantics (status codes, methods) ─────────────────
+
+describe("WebDAV method semantics", () => {
+  it("PUT creates a file and returns 201", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("PUT", "/created.txt", { body: "hi" }));
+    assert.equal(res.status, 201);
+  });
+
+  it("GET on a directory in browser:disabled mode returns 404 (WebDAV download semantics)", async () => {
+    // The default test app uses browser:"list", which serves directory HTML listings.
+    // With the browser feature disabled, GET on a directory falls through to the
+    // WebDAV file handler, which refuses to "download" a directory.
+    const dialect = new LibsqlDialect({ url: ":memory:" });
+    const fs = createKyselyFs(dialect, { dbType: "sqlite" });
+    await fs.stat("/").catch(() => {});
+    const app = createHono(fs, { browser: "disabled", auth: () => true });
+    await fs.mkdir("/adir");
+    const res = await app.request(req("GET", "/adir"));
+    assert.equal(res.status, 404);
+  });
+
+  it("GET on a directory in browser:list mode returns an HTML listing (200)", async () => {
+    const { app, fs } = await createApp();
+    await fs.mkdir("/adir");
+    const res = await app.request(req("GET", "/adir/", { headers: { Accept: "text/html" } }));
+    assert.equal(res.status, 200);
+    assert.ok((res.headers.get("content-type") ?? "").includes("text/html"));
+  });
+
+  it("GET on a missing file returns 404", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("GET", "/nope.txt"));
+    assert.equal(res.status, 404);
+  });
+
+  it("DELETE is idempotent (force) and returns 204 even for missing paths", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("DELETE", "/never-existed.txt"));
+    assert.equal(res.status, 204);
+  });
+
+  it("MKCOL then PROPFIND Depth:0 finds the collection", async () => {
+    const { app } = await createApp();
+    const mk = await app.request(req("MKCOL", "/coll/"));
+    assert.ok(mk.status === 201 || mk.status === 204);
+    const pf = await app.request(req("PROPFIND", "/coll/", { headers: { Depth: "0" } }));
+    assert.equal(pf.status, 207);
+  });
+
+  it("PROPFIND on root returns 207 even when empty", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("PROPFIND", "/", { headers: { Depth: "1" } }));
+    assert.equal(res.status, 207);
+  });
+
+  it("PROPATCH is not implemented (501)", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("PROPATCH", "/x.txt"));
+    assert.equal(res.status, 501);
+  });
+
+  it("unsupported method returns 405 with an Allow header", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("LOCK", "/x.txt"));
+    assert.equal(res.status, 405);
+    assert.ok(res.headers.get("Allow"), "405 must advertise allowed methods");
+  });
+
+  it("OPTIONS advertises DAV compliance and returns 204", async () => {
+    const { app } = await createApp();
+    const res = await app.request(req("OPTIONS", "/"));
+    assert.equal(res.status, 204);
+    assert.equal(res.headers.get("DAV"), "1");
+  });
+});
+
+// ─── J. Conditional GET / ETag (browser mode) ───────────────────────────────
+
+describe("conditional GET via ETag", () => {
+  it("serves the file with an ETag and returns 304 for a matching If-None-Match", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/cond.txt", "cache me");
+    const first = await app.request(req("GET", "/cond.txt", { headers: { Accept: "text/html" } }));
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag, "expected an ETag header");
+
+    const second = await app.request(
+      req("GET", "/cond.txt", { headers: { Accept: "text/html", "If-None-Match": etag! } }),
+    );
+    assert.equal(second.status, 304);
+  });
+});
+
+// ─── K. Authentication ──────────────────────────────────────────────────────
+
+describe("authentication", () => {
+  async function createAuthedApp() {
+    const dialect = new LibsqlDialect({ url: ":memory:" });
+    const fs = createKyselyFs(dialect, { dbType: "sqlite" });
+    await fs.stat("/").catch(() => {});
+    // Only accept exactly user:pass
+    const app = createHono(fs, { browser: "disabled", auth: (u, p) => u === "user" && p === "pass" });
+    return { app, fs };
+  }
+
+  it("rejects a WebDAV request with no credentials (401)", async () => {
+    const { app } = await createAuthedApp();
+    const res = await app.request(new Request("http://localhost/x.txt", { method: "PUT", body: "x" }));
+    assert.equal(res.status, 401);
+  });
+
+  it("rejects wrong credentials (401)", async () => {
+    const { app } = await createAuthedApp();
+    const res = await app.request(
+      new Request("http://localhost/x.txt", {
+        method: "PUT",
+        body: "x",
+        headers: { Authorization: `Basic ${btoa("user:wrong")}` },
+      }),
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("accepts correct credentials", async () => {
+    const { app } = await createAuthedApp();
+    const res = await app.request(
+      new Request("http://localhost/ok.txt", {
+        method: "PUT",
+        body: "x",
+        headers: { Authorization: `Basic ${btoa("user:pass")}` },
+      }),
+    );
+    assert.equal(res.status, 201);
+  });
+});
+
+// ─── L. Chinese (UTF-8) paths over the HTTP/WebDAV layer ─────────────────────
+// The fs layer is exercised directly in fs.test.ts; these tests drive the full
+// percent-encode/decode round-trip through the HTTP handlers.
+
+describe("Chinese UTF-8 paths over HTTP", () => {
+  // [decoded path, percent-encoded request path]
+  const files: [string, string][] = [
+    ["/文件.txt", "/%E6%96%87%E4%BB%B6.txt"],
+    ["/目录/测试.txt", "/%E7%9B%AE%E5%BD%95/%E6%B5%8B%E8%AF%95.txt"],
+    ["/中文 空格.txt", "/%E4%B8%AD%E6%96%87%20%E7%A9%BA%E6%A0%BC.txt"],
+  ];
+
+  for (const [decoded, encoded] of files) {
+    it(`PUT ${encoded} → GET round-trips content`, async () => {
+      const { app } = await createApp();
+      const putRes = await app.request(req("PUT", encoded, { body: "你好世界" }));
+      assert.ok(putRes.status === 201 || putRes.status === 204, `PUT status: ${putRes.status}`);
+      const getRes = await app.request(req("GET", encoded));
+      assert.equal(getRes.status, 200);
+      assert.equal(await getRes.text(), "你好世界");
+    });
+
+    it(`stat sees the decoded name for ${encoded}`, async () => {
+      const { app, fs } = await createApp();
+      await app.request(req("PUT", encoded, { body: "x" }));
+      // The fs must receive the DECODED path, never the percent-encoded form.
+      assert.equal((await fs.stat(decoded)).isFile(), true);
+    });
+  }
+
+  it("PROPFIND encodes Chinese hrefs and shows the decoded displayname", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/文档.txt", "x");
+    const res = await app.request(req("PROPFIND", "/", { headers: { Depth: "1" } }));
+    assert.equal(res.status, 207);
+    const body = await res.text();
+    // href must be percent-encoded UTF-8
+    assert.ok(body.includes("/%E6%96%87%E6%A1%A3.txt"), `expected encoded href in:\n${body}`);
+    // displayname must be the decoded, human-readable name
+    assert.ok(body.includes("<d:displayname>文档.txt</d:displayname>"), "displayname should be decoded");
+    // the raw Chinese bytes must not leak into an href element
+    assert.ok(!body.includes("<d:href>/文档.txt</d:href>"), "raw Chinese must not appear in href");
+  });
+
+  it("MOVE renames a Chinese file to another Chinese name", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/旧文件.txt", "数据");
+    const moveRes = await app.request(
+      req("MOVE", "/%E6%97%A7%E6%96%87%E4%BB%B6.txt", {
+        headers: { Destination: "http://localhost/%E6%96%B0%E6%96%87%E4%BB%B6.txt" },
+      }),
+    );
+    assert.ok(moveRes.status === 201 || moveRes.status === 204, `MOVE status: ${moveRes.status}`);
+    assert.equal((await app.request(req("GET", "/%E6%96%B0%E6%96%87%E4%BB%B6.txt"))).status, 200);
+    assert.equal((await app.request(req("GET", "/%E6%97%A7%E6%96%87%E4%BB%B6.txt"))).status, 404);
+    assert.equal((await fs.readFile("/新文件.txt")).toString(), "数据");
+  });
+
+  it("DELETE removes a Chinese-named file", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/删除我.txt", "x");
+    const delRes = await app.request(req("DELETE", "/%E5%88%A0%E9%99%A4%E6%88%91.txt"));
+    assert.ok(delRes.status === 200 || delRes.status === 204, `DELETE status: ${delRes.status}`);
+    await assert.rejects(() => fs.stat("/删除我.txt"));
+  });
+
+  it("browser listing shows decoded Chinese names but encoded hrefs", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/图片.png", "x");
+    const res = await app.request(req("GET", "/", { headers: { Accept: "text/html" } }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    // Human-readable decoded name in the display span
+    assert.ok(body.includes('class="name-text">图片.png'), "listing should show decoded name");
+    // href/link must be percent-encoded
+    assert.ok(body.includes('href="./%E5%9B%BE%E7%89%87.png"'), `expected encoded href in:\n${body}`);
   });
 });

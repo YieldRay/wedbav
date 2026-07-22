@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer";
-import type { Dirent, Stats } from "node:fs";
 import path from "node:path/posix";
 import { Hono } from "hono";
 import { decodeBase64, encodeBase64 } from "hono/utils/encode";
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi";
 import z from "zod/v4";
 import type { FsSubset } from "./abstract.ts";
+import { copyLikeOperation } from "./copy_move.ts";
 import { isErrnoException, mapErrnoToStatus } from "./utils.ts";
 
 const FileType = z.union([z.literal(1), z.literal(2)]);
@@ -294,10 +294,25 @@ export function createHonoAPI<Prefix extends string>(
         return c.json({ error: "File is readonly" }, 400);
       }
 
+      const overwrite = body.options?.overwrite ?? false;
       try {
-        const sourceStat = await fs.stat(sourcePath);
-        const overwrite = body.options?.overwrite ?? false;
-        await performCopy(fs, sourcePath, destinationPath, sourceStat, overwrite);
+        // Reuse the same recursive copy engine as WebDAV COPY to avoid divergent semantics.
+        const result = await copyLikeOperation({
+          fs,
+          sourcePath,
+          destinationPath,
+          depth: Infinity,
+          overwrite,
+          type: "COPY",
+        });
+        if (!result.ok) {
+          const status = result.status === 404 ? 404 : result.status === 500 ? 500 : 400;
+          return c.json({ error: result.message }, status);
+        }
+        if (result.errors.length) {
+          const first = result.errors[0]!;
+          return c.json({ error: first.description ?? "Copy failed" }, first.status);
+        }
         return c.json({ success: true });
       } catch (error) {
         if (isErrnoException(error)) {
@@ -489,46 +504,6 @@ async function ensureParentDirectory(fs: FsSubset, targetPath: string) {
       return;
     }
     throw error;
-  }
-}
-
-async function performCopy(
-  fs: FsSubset,
-  sourcePath: string,
-  destinationPath: string,
-  sourceStat: Stats,
-  overwrite: boolean,
-) {
-  const destinationExists = await pathExists(fs, destinationPath);
-  if (destinationExists) {
-    if (!overwrite) {
-      const error = new Error("File already exists") as NodeJS.ErrnoException;
-      error.code = "EEXIST";
-      throw error;
-    }
-    await fs.rm(destinationPath, { recursive: true, force: true });
-  }
-
-  if (sourceStat.isDirectory()) {
-    await copyDirectory(fs, sourcePath, destinationPath);
-  } else {
-    await ensureParentDirectory(fs, destinationPath);
-    await fs.copyFile(sourcePath, destinationPath);
-  }
-}
-
-async function copyDirectory(fs: FsSubset, source: string, destination: string) {
-  await fs.mkdir(destination, { recursive: true });
-  const entries = (await fs.readdir(source, { withFileTypes: true })) as Dirent[];
-  for (const entry of entries) {
-    const childSource = path.join(source, entry.name);
-    const childDestination = path.join(destination, entry.name);
-    if (entry.isDirectory()) {
-      await copyDirectory(fs, childSource, childDestination);
-    } else {
-      await ensureParentDirectory(fs, childDestination);
-      await fs.copyFile(childSource, childDestination);
-    }
   }
 }
 

@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
-import { type Context, Hono } from "hono";
+import { type Context, type MiddlewareHandler, Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { showRoutes } from "hono/dev";
 import { logger } from "hono/logger";
@@ -35,6 +35,7 @@ export interface WedbavOptions {
    */
   browser?: "public" | "list" | "enabled" | "disabled" | "private" | undefined;
   port?: number | undefined;
+  middleware?: MiddlewareHandler
 }
 
 type Variables = {
@@ -46,9 +47,14 @@ type Variables = {
 
 export type WedbavContext = { Variables: Variables; Bindings: Bindings };
 
+const SERVER_VERSION = displayVersion();
+
 export function createHono(fs: FsSubset, options: WedbavOptions) {
   const app = new Hono<WedbavContext>();
 
+  if (options.middleware) {
+    app.use(options.middleware);
+  }
   app.use(logger());
 
   app.use(async (c, next) => {
@@ -76,7 +82,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     c.set("options", options);
     c.set("url", new URL(c.req.url));
     c.set("pathname", getPathnameFromURL(c.req.url));
-    c.header("server", displayVersion());
+    c.header("server", SERVER_VERSION);
     return next();
   });
 
@@ -413,5 +419,6 @@ function displayVersion(): string {
     const v = process.versions[k];
     if (v) return `${k} v${v}`;
   }
-  throw new Error("unreachable");
+  // Unknown runtime — never throw here: this runs on every response.
+  return "wedbav";
 }

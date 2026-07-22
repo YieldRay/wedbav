@@ -8,9 +8,9 @@
     "lib"
   ],
   "scripts": {
-    "dev": "node --env-file=.env --watch main.ts",
-    "dev:deno": "deno serve -A --watch --env-file=.env main.ts",
-    "dev:bun": "bun --watch main.ts",
+    "dev": "node --env-file=.env --watch main-dev.ts",
+    "dev:deno": "deno serve -A --watch --env-file=.env main-dev.ts",
+    "dev:bun": "bun --watch main-dev.ts",
     "build": "tsdown",
     "start": "node main.ts",
     "type-check": "tsc --noEmit",

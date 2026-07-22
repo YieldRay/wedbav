@@ -24,7 +24,6 @@ export interface FilesystemTable {
   size: number;
   etag: string | null;
   content: Uint8Array | null;
-  meta: string | null;
 }
 
 export type DB_Type = "sqlite" | "mysql" | "pg";
@@ -34,17 +33,59 @@ class KyselyFs implements FsSubset {
   private readonly _tableName: string;
   private readonly _db: Kysely<Database>;
   private readonly _dbType: DB_Type;
+  private readonly _ready: Promise<void>;
+  /**
+   * The current executor. Defaults to the root connection, but is swapped to a
+   * transaction connection inside {@link _transaction} so all `$xxx` builders
+   * transparently run within that transaction.
+   */
+  private _executor: Kysely<Database>;
   private get $insert() {
-    return this._db.insertInto(this._tableName as DEFAULT_TABLE_NAME);
+    return this._executor.insertInto(this._tableName as DEFAULT_TABLE_NAME);
   }
   private get $select() {
-    return this._db.selectFrom(this._tableName as DEFAULT_TABLE_NAME);
+    return this._executor.selectFrom(this._tableName as DEFAULT_TABLE_NAME);
   }
   private get $delete() {
-    return this._db.deleteFrom(this._tableName as DEFAULT_TABLE_NAME);
+    return this._executor.deleteFrom(this._tableName as DEFAULT_TABLE_NAME);
   }
   private get $update() {
-    return this._db.updateTable(this._tableName as DEFAULT_TABLE_NAME);
+    return this._executor.updateTable(this._tableName as DEFAULT_TABLE_NAME);
+  }
+
+  /**
+   * Run `fn` inside a database transaction. While it runs, all `$xxx` query
+   * builders on `this` use the transaction connection, so nested helper methods
+   * participate in the same transaction without threading an executor argument.
+   * Reentrant calls reuse the outer transaction.
+   */
+  private async _transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (this._executor !== this._db) {
+      // already inside a transaction — reuse it
+      return fn();
+    }
+    // Ensure the schema exists before opening a transaction.
+    await this._ready;
+    // Pin a single connection and drive BEGIN/COMMIT/ROLLBACK manually rather than
+    // using db.transaction(). This keeps every statement (including the ones issued
+    // by nested helper methods via `_executor`) on the SAME connection, which is
+    // required for in-memory SQLite where each connection is an isolated database.
+    return this._db.connection().execute(async (conn) => {
+      this._executor = conn;
+      try {
+        await sql`BEGIN`.execute(conn);
+        try {
+          const result = await fn();
+          await sql`COMMIT`.execute(conn);
+          return result;
+        } catch (err) {
+          await sql`ROLLBACK`.execute(conn);
+          throw err;
+        }
+      } finally {
+        this._executor = this._db;
+      }
+    });
   }
 
   constructor(
@@ -73,10 +114,22 @@ class KyselyFs implements FsSubset {
       },
     });
     this._db = db;
+    this._executor = db;
 
-    // create the table if not exists
-    db.schema
-      .createTable(tableName)
+    // Create the schema if it does not exist. DDL is issued before any query, so
+    // ordinary (non-transactional) operations observe it on the shared connection;
+    // transactions additionally await `_ready`. Callers may also await `ready()`.
+    this._ready = this._initSchema();
+  }
+
+  /** Resolves once the table (and, for Postgres, its prefix index) have been created. */
+  ready(): Promise<void> {
+    return this._ready;
+  }
+
+  private async _initSchema(): Promise<void> {
+    await this._db.schema
+      .createTable(this._tableName)
       .ifNotExists()
       .addColumn("path", "varchar(4096)", (col) => col.primaryKey())
       .addColumn("created_at", "bigint", (col) => col.notNull())
@@ -84,8 +137,16 @@ class KyselyFs implements FsSubset {
       .addColumn("size", "integer", (col) => col.notNull())
       .addColumn("etag", "varchar(1024)")
       .addColumn("content", this._dbType === "pg" ? "bytea" : "blob")
-      .addColumn("meta", "text")
       .execute();
+
+    // Prefix LIKE queries ("path LIKE 'dir/%'") drive readdir/rmdir/stat.
+    // On Postgres a default b-tree index cannot serve prefix LIKE unless it uses
+    // text_pattern_ops, so create such an index explicitly.
+    if (this._dbType === "pg") {
+      await sql`CREATE INDEX IF NOT EXISTS ${sql.ref(`${this._tableName}_path_pattern_idx`)} ON ${sql.table(
+        this._tableName,
+      )} (path ${sql.raw("text_pattern_ops")})`.execute(this._db);
+    }
   }
 
   private async _getFileStats(fileKey: string): Promise<VStats | undefined> {
@@ -191,41 +252,46 @@ class KyselyFs implements FsSubset {
       throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
     }
 
-    // we should check if dest is a directory
-    const destDirKey = `${destKey}/`;
-    if (await this._getDirStats(destDirKey)) {
-      throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
-    }
+    await this._transaction(async () => {
+      // we should check if dest is a directory
+      const destDirKey = `${destKey}/`;
+      if (await this._getDirStats(destDirKey)) {
+        throw new VFSError("Cannot copy file to directory", { syscall: "copyfile", code: "EISDIR", path: dest });
+      }
 
-    // now we can safely copy the file
-    const file = await this.$select.selectAll().where("path", "=", srcKey).executeTakeFirst();
-    if (!file) {
-      throw new VFSError("no such file or directory", {
-        syscall: "copyfile",
-        code: "ENOENT",
-        path: src,
-      });
-    }
+      // now we can safely copy the file
+      const file = await this.$select
+        .select(["size", "content", "etag"])
+        .where("path", "=", srcKey)
+        .executeTakeFirst();
+      if (!file) {
+        throw new VFSError("no such file or directory", {
+          syscall: "copyfile",
+          code: "ENOENT",
+          path: src,
+        });
+      }
 
-    const now = Date.now();
-    await this.$insert
-      .values({
-        path: destKey,
-        created_at: now,
-        modified_at: now,
-        size: file.size,
-        content: file.content,
-        etag: file.etag,
-      })
-      .onConflict((oc) =>
-        oc.column("path").doUpdateSet({
+      const now = Date.now();
+      await this.$insert
+        .values({
+          path: destKey,
+          created_at: now,
           modified_at: now,
           size: file.size,
           content: file.content,
           etag: file.etag,
-        }),
-      )
-      .execute();
+        })
+        .onConflict((oc) =>
+          oc.column("path").doUpdateSet({
+            modified_at: now,
+            size: file.size,
+            content: file.content,
+            etag: file.etag,
+          }),
+        )
+        .execute();
+    });
   }
 
   /**
@@ -237,49 +303,61 @@ class KyselyFs implements FsSubset {
     const isDir = oldKey.endsWith("/");
     const newKey = normalizePathLike(newPath);
 
+    // Renaming to the same location is a no-op (Node.js semantics).
+    if (oldKey === newKey) return;
+
     if (isDir) {
       const oldDirKey = oldKey;
       const newDirKey = `${removeSuffixSlash(newKey)}/`;
-      const explicitDir = await this._getExplicitDirStats(oldKey);
-      if (explicitDir) {
-        if (await this._getExplicitDirStats(newDirKey)) {
-          throw new VFSError("file exists", { syscall: "rename", code: "EEXIST", path: newPath });
+      if (oldDirKey === newDirKey) return;
+
+      await this._transaction(async () => {
+        const explicitDir = await this._getExplicitDirStats(oldKey);
+        if (explicitDir) {
+          if (await this._getExplicitDirStats(newDirKey)) {
+            throw new VFSError("file exists", { syscall: "rename", code: "EEXIST", path: newPath });
+          }
+          await this.$update.set({ path: newDirKey, modified_at: Date.now() }).where("path", "=", oldKey).execute();
         }
-        await this.$update.set({ path: newDirKey, modified_at: Date.now() }).where("path", "=", oldKey).execute();
-      }
-      // implicit directories cannot be renamed, rename all children instead
-      // not atomic — rename of many rows is not a single transaction
-      const allFiles = await this.$select
-        .select(["path"])
-        .where("path", "like", `${encodePathForSQL(oldDirKey)}%`)
-        .execute();
-      for (const { path: childPath } of allFiles) {
-        const renamedPath = childPath.replace(oldDirKey, newDirKey);
-        await this.$update.set({ path: renamedPath, modified_at: Date.now() }).where("path", "=", childPath).execute();
-      }
+        // implicit directories cannot be renamed, rename all children instead
+        const now = Date.now();
+        const allFiles = await this.$select
+          .select(["path"])
+          .where("path", "like", `${encodePathForSQL(oldDirKey)}%`)
+          .where("path", "!=", oldKey)
+          .execute();
+        for (const { path: childPath } of allFiles) {
+          // Anchored prefix replacement — do NOT use String.replace, which
+          // rewrites the first occurrence anywhere in the path.
+          const renamedPath = newDirKey + childPath.slice(oldDirKey.length);
+          await this.$update.set({ path: renamedPath, modified_at: now }).where("path", "=", childPath).execute();
+        }
+      });
       return;
     }
 
     const oldFileKey = oldKey;
     const newFileKey = newKey;
-    const file = await this._getFileStats(oldFileKey);
-    if (!file) {
-      throw new VFSError("no such file or directory", {
-        syscall: "rename",
-        code: "ENOENT",
-        path: oldFileKey,
-      });
-    }
 
-    // check if newKey is a directory
-    const newDirKey = `${newFileKey}/`;
-    if (await this._getDirStats(newDirKey)) {
-      throw new VFSError("illegal operation on a directory", { syscall: "rename", code: "EISDIR", path: newPath });
-    }
-    // overwrite existing file at newFileKey (Node.js rename semantics)
-    await this.$delete.where("path", "=", newFileKey).execute();
+    await this._transaction(async () => {
+      const file = await this._getFileStats(oldFileKey);
+      if (!file) {
+        throw new VFSError("no such file or directory", {
+          syscall: "rename",
+          code: "ENOENT",
+          path: oldFileKey,
+        });
+      }
 
-    await this.$update.set({ path: newFileKey, modified_at: Date.now() }).where("path", "=", oldFileKey).execute();
+      // check if newKey is a directory
+      const newDirKey = `${newFileKey}/`;
+      if (await this._getDirStats(newDirKey)) {
+        throw new VFSError("illegal operation on a directory", { syscall: "rename", code: "EISDIR", path: newPath });
+      }
+      // overwrite existing file at newFileKey (Node.js rename semantics)
+      await this.$delete.where("path", "=", newFileKey).execute();
+      await this.$update.set({ path: newFileKey, modified_at: Date.now() }).where("path", "=", oldFileKey).execute();
+    });
   }
 
   async rmdir(path: PathLike, options?: { recursive?: boolean }): Promise<void> {
@@ -287,31 +365,31 @@ class KyselyFs implements FsSubset {
     const dirKey = `${fileKey}/`;
     const recursive = options?.recursive ?? false;
 
-    if (await this._getFileStats(fileKey)) {
-      throw new VFSError("not a directory", { syscall: "rmdir", code: "ENOTDIR", path });
-    }
-
-    if (!(await this._getDirStats(dirKey))) {
-      throw new VFSError("no such file or directory", { syscall: "rmdir", code: "ENOENT", path });
-    }
-
-    if (!recursive) {
-      // when not recursive, we should check if there are any children
-      const hasChildren = await this.$select
-        .select("path")
-        .where("path", "like", `${encodePathForSQL(dirKey)}%`)
-        .where("path", "!=", dirKey)
-        .executeTakeFirst();
-      if (hasChildren) {
-        throw new VFSError("directory not empty", { syscall: "rmdir", code: "ENOTEMPTY", path });
+    await this._transaction(async () => {
+      if (await this._getFileStats(fileKey)) {
+        throw new VFSError("not a directory", { syscall: "rmdir", code: "ENOTDIR", path });
       }
-    }
 
-    // remove the explicit dir
-    await this.$delete.where("path", "=", dirKey).execute();
+      if (!(await this._getDirStats(dirKey))) {
+        throw new VFSError("no such file or directory", { syscall: "rmdir", code: "ENOENT", path });
+      }
 
-    // remove the implicit dir
-    await this.$delete.where("path", "like", `${encodePathForSQL(dirKey)}%`).execute();
+      if (!recursive) {
+        // when not recursive, we should check if there are any children
+        const hasChildren = await this.$select
+          .select("path")
+          .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+          .where("path", "!=", dirKey)
+          .executeTakeFirst();
+        if (hasChildren) {
+          throw new VFSError("directory not empty", { syscall: "rmdir", code: "ENOTEMPTY", path });
+        }
+      }
+
+      // remove the explicit dir row and every descendant (the LIKE also matches dirKey)
+      await this.$delete.where("path", "like", `${encodePathForSQL(dirKey)}%`).execute();
+      await this.$delete.where("path", "=", dirKey).execute();
+    });
   }
 
   async unlink(path: PathLike): Promise<void> {
@@ -383,7 +461,6 @@ class KyselyFs implements FsSubset {
         size: 0,
         etag: "",
         content: null,
-        meta: null,
       })
       .execute();
 
@@ -560,11 +637,13 @@ class KyselyFs implements FsSubset {
           .where("path", "=", fileKey)
           .executeTakeFirst();
 
-        if (!part || !part.content || part.content.byteLength === 0) {
+        if (!part?.content || part.content.byteLength === 0) {
           this.push(null);
         } else {
           this.push(Buffer.from(part.content));
-          offset += size;
+          // Advance by the number of bytes actually returned, not the requested
+          // size — substr() may return fewer bytes than requested near EOF.
+          offset += part.content.byteLength;
         }
       },
       highWaterMark: 1024 * 1024, // 1MB chunks, each chunk may be one query to SQLite

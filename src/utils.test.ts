@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { describe, it } from "node:test";
+import { LibsqlDialect } from "@libsql/kysely-libsql";
+import { createKyselyFs } from "./fs.ts";
 import {
+  convertToWebStream,
   createEtag,
   decodeURISafe,
   encodePath,
@@ -9,6 +13,7 @@ import {
   isErrnoException,
   mapErrnoToStatus,
   normalizePathLike,
+  readBufferOrStream,
   removeSuffixSlash,
 } from "./utils.ts";
 
@@ -324,5 +329,49 @@ describe("normalizePathLike", () => {
   it("converts PathLike (Buffer) to string", () => {
     const result = normalizePathLike(Buffer.from("/foo/bar"));
     assert.equal(typeof result, "string");
+  });
+});
+
+describe("readBufferOrStream", () => {
+  function createFs() {
+    return createKyselyFs(new LibsqlDialect({ url: ":memory:" }), { dbType: "sqlite" });
+  }
+
+  it("returns a Buffer body for small files (≤ 1MB)", async () => {
+    const fs = createFs();
+    await fs.writeFile("/small.txt", "tiny");
+    const { body, stat } = await readBufferOrStream(fs, "/small.txt");
+    assert.ok(!(body instanceof Readable), "small files should be returned as a buffer");
+    assert.equal(stat.size, 4);
+  });
+
+  it("returns a stream body for large files (> 1MB)", async () => {
+    const fs = createFs();
+    const data = Buffer.alloc(1024 * 1024 + 1, 0x41); // one byte over the threshold
+    await fs.writeFile("/large.bin", data);
+    const { body, stat } = await readBufferOrStream(fs, "/large.bin");
+    assert.ok(body instanceof Readable, "large files should be streamed");
+    assert.equal(stat.size, data.byteLength);
+  });
+
+  it("reuses a provided stat instead of re-statting", async () => {
+    const fs = createFs();
+    await fs.writeFile("/provided.txt", "x");
+    const stat = await fs.stat("/provided.txt");
+    const { stat: returned } = await readBufferOrStream(fs, "/provided.txt", stat);
+    assert.equal(returned, stat);
+  });
+});
+
+describe("convertToWebStream", () => {
+  it("passes through a Uint8Array unchanged", () => {
+    const buf = new Uint8Array([1, 2, 3]);
+    assert.equal(convertToWebStream(buf), buf);
+  });
+
+  it("converts a Readable into a web ReadableStream", () => {
+    const readable = Readable.from([Buffer.from("hello")]);
+    const web = convertToWebStream(readable);
+    assert.ok(web instanceof ReadableStream);
   });
 });

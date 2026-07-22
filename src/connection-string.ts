@@ -106,7 +106,7 @@ export function dialectFromConnectionStringForVercel(connectionString: string):
   switch (scheme) {
     case "pg":
     case "postgres":
-    case "postgresql":
+    case "postgresql": {
       url.protocol = "postgres:";
       const pool = new Pool({ connectionString });
       return {
@@ -114,8 +114,9 @@ export function dialectFromConnectionStringForVercel(connectionString: string):
         dbType: "pg",
         pool,
       };
+    }
 
-    case "libsql":
+    case "libsql": {
       const authToken = url.password || undefined;
       const libsqlUrl = new URL(url);
       libsqlUrl.username = "";
@@ -125,6 +126,7 @@ export function dialectFromConnectionStringForVercel(connectionString: string):
         dialect: new LibsqlDialect(authToken ? { url: libsqlHref, authToken } : { url: libsqlHref }),
         dbType: "sqlite",
       };
+    }
 
     default:
       throw new Error(

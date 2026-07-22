@@ -873,4 +873,202 @@ describe("KyselyFs", () => {
       assert.ok(!entries.includes("%23bar.txt"), "should not be URL-encoded");
     });
   });
+
+  // ── Regression tests for the anchored-prefix rename bug ──────────────────────
+  // Previously rename() used String.replace(oldDirKey, newDirKey) which rewrites
+  // the FIRST occurrence anywhere in the path, corrupting nested repeated names.
+  describe("rename: anchored prefix replacement (regression)", () => {
+    it("renames a directory whose descendant repeats the source segment name", async () => {
+      const fs = createFs();
+      // /a/ contains /a/x/a/deep.txt — the segment "a/" appears twice
+      await fs.writeFile("/a/x/a/deep.txt", "deep");
+      await fs.writeFile("/a/top.txt", "top");
+      await fs.rename("/a/", "/b/");
+
+      // Old tree gone
+      await assert.rejects(() => fs.stat("/a/x/a/deep.txt"));
+      await assert.rejects(() => fs.stat("/a/top.txt"));
+
+      // New tree preserves the repeated inner "a" segment exactly
+      assert.equal((await fs.readFile("/b/x/a/deep.txt")).toString(), "deep");
+      assert.equal((await fs.readFile("/b/top.txt")).toString(), "top");
+      // The inner /b/x/a/ must still exist as-is (not collapsed to /b/x/b/)
+      await assert.rejects(() => fs.stat("/b/x/b/deep.txt"), "inner segment must not be rewritten");
+    });
+
+    it("renaming a prefix does not touch a sibling with a longer name", async () => {
+      const fs = createFs();
+      // /dir/ and /dir2/ share the "dir" prefix; renaming /dir/ must leave /dir2/ alone
+      await fs.writeFile("/dir/a.txt", "a");
+      await fs.writeFile("/dir2/b.txt", "b");
+      await fs.rename("/dir/", "/renamed/");
+
+      assert.equal((await fs.readFile("/renamed/a.txt")).toString(), "a");
+      // sibling with the longer name is untouched
+      assert.equal((await fs.readFile("/dir2/b.txt")).toString(), "b");
+      await assert.rejects(() => fs.stat("/dir/a.txt"));
+    });
+  });
+
+  // ── Regression tests for the same-path rename no-op ──────────────────────────
+  describe("rename: same-path no-op (regression)", () => {
+    it("renaming a file to itself keeps it intact", async () => {
+      const fs = createFs();
+      await fs.writeFile("/same.txt", "content");
+      await assert.doesNotReject(() => fs.rename("/same.txt", "/same.txt"));
+      assert.equal((await fs.readFile("/same.txt")).toString(), "content");
+    });
+
+    it("renaming a directory to itself keeps its children intact", async () => {
+      const fs = createFs();
+      await fs.writeFile("/d/child.txt", "x");
+      await assert.doesNotReject(() => fs.rename("/d/", "/d/"));
+      assert.equal((await fs.readFile("/d/child.txt")).toString(), "x");
+    });
+
+    it("renaming a file to a path that normalizes to the same key is a no-op", async () => {
+      const fs = createFs();
+      await fs.writeFile("/n.txt", "keep");
+      // "/./n.txt" normalizes to "/n.txt"
+      await assert.doesNotReject(() => fs.rename("/n.txt", "/./n.txt"));
+      assert.equal((await fs.readFile("/n.txt")).toString(), "keep");
+    });
+  });
+
+  // ── Transaction atomicity: a failing rename must not partially mutate state ───
+  describe("rename atomicity (regression)", () => {
+    it("does not remove destination when moving a dir onto an existing explicit dir", async () => {
+      const fs = createFs();
+      await fs.mkdir("/srcdir");
+      await fs.writeFile("/srcdir/keep.txt", "src");
+      await fs.mkdir("/dstdir");
+      await fs.writeFile("/dstdir/existing.txt", "dst");
+
+      await assert.rejects(
+        () => fs.rename("/srcdir/", "/dstdir/"),
+        (err: VFSError) => {
+          assert.equal(err.code, "EEXIST");
+          return true;
+        },
+      );
+
+      // Source untouched after the failed (rolled-back) rename
+      assert.equal((await fs.readFile("/srcdir/keep.txt")).toString(), "src");
+      // Destination untouched
+      assert.equal((await fs.readFile("/dstdir/existing.txt")).toString(), "dst");
+    });
+  });
+
+  // ── createReadStream across chunk boundaries and large content ───────────────
+  describe("createReadStream chunking (regression for byte-accurate offset)", () => {
+    async function drain(stream: import("node:stream").Readable): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (c) => chunks.push(Buffer.from(c)));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+      return Buffer.concat(chunks);
+    }
+
+    it("streams content larger than the 1MB highWaterMark across multiple chunks", async () => {
+      const fs = createFs();
+      // 2.5 MB of deterministic bytes so we cross several chunk boundaries
+      const size = 2_500_000;
+      const data = Buffer.alloc(size);
+      for (let i = 0; i < size; i++) data[i] = i % 251; // prime-ish stride avoids trivial patterns
+      await fs.writeFile("/big.bin", data);
+
+      const out = await drain(fs.createReadStream("/big.bin"));
+      assert.equal(out.byteLength, size);
+      assert.ok(out.equals(data), "streamed bytes must exactly match written content");
+    });
+
+    it("streams content whose size is not a multiple of the chunk size", async () => {
+      const fs = createFs();
+      const size = 1024 * 1024 + 12345; // just over one chunk with an odd tail
+      const data = Buffer.alloc(size, 0xab);
+      data[size - 1] = 0x01; // sentinel last byte to detect truncation/overrun
+      await fs.writeFile("/odd.bin", data);
+
+      const out = await drain(fs.createReadStream("/odd.bin"));
+      assert.equal(out.byteLength, size);
+      assert.equal(out[size - 1], 0x01, "final tail byte must be preserved");
+    });
+  });
+
+  // ── ready() and schema initialization ────────────────────────────────────────
+  describe("ready()", () => {
+    it("resolves once the schema exists and operations work afterwards", async () => {
+      const dialect = new LibsqlDialect({ url: ":memory:" });
+      const fs = createKyselyFs(dialect, { dbType: "sqlite" });
+      await fs.ready();
+      await fs.writeFile("/after-ready.txt", "ok");
+      assert.equal((await fs.readFile("/after-ready.txt")).toString(), "ok");
+    });
+
+    it("is idempotent (can be awaited multiple times)", async () => {
+      const fs = createFs();
+      await fs.ready();
+      await fs.ready();
+      await assert.doesNotReject(() => fs.ready());
+    });
+  });
+
+  // ── ETag behavior ────────────────────────────────────────────────────────────
+  describe("etag", () => {
+    it("exposes a stable etag via the ETAG symbol on stat", async () => {
+      const fs = createFs();
+      await fs.writeFile("/e.txt", "hello");
+      // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed access
+      const s = (await fs.stat("/e.txt")) as any;
+      assert.match(s[ETAG], /^"[0-9a-f]{64}"$/);
+    });
+
+    it("etag changes when content changes", async () => {
+      const fs = createFs();
+      await fs.writeFile("/e.txt", "hello");
+      // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed access
+      const before = ((await fs.stat("/e.txt")) as any)[ETAG];
+      await fs.writeFile("/e.txt", "world");
+      // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed access
+      const after = ((await fs.stat("/e.txt")) as any)[ETAG];
+      assert.notEqual(before, after);
+    });
+
+    it("copyFile preserves the source etag on the destination", async () => {
+      const fs = createFs();
+      await fs.writeFile("/src.txt", "same-bytes");
+      // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed access
+      const srcEtag = ((await fs.stat("/src.txt")) as any)[ETAG];
+      await fs.copyFile("/src.txt", "/dst.txt");
+      // biome-ignore lint/suspicious/noExplicitAny: symbol-keyed access
+      const dstEtag = ((await fs.stat("/dst.txt")) as any)[ETAG];
+      assert.equal(dstEtag, srcEtag);
+    });
+  });
+
+  // ── readFile encoding + empty content ────────────────────────────────────────
+  describe("readFile encoding & empty content", () => {
+    it("returns a string when an encoding is given", async () => {
+      const fs = createFs();
+      await fs.writeFile("/enc.txt", "héllo");
+      const s = await fs.readFile("/enc.txt", { encoding: "utf-8" });
+      assert.equal(typeof s, "string");
+      assert.equal(s, "héllo");
+    });
+
+    it("returns an empty Buffer for an empty file", async () => {
+      const fs = createFs();
+      await fs.writeFile("/zero.txt", "");
+      const buf = await fs.readFile("/zero.txt");
+      assert.equal(buf.byteLength, 0);
+    });
+
+    it("stat reports size 0 for an empty file", async () => {
+      const fs = createFs();
+      await fs.writeFile("/zero.txt", "");
+      assert.equal((await fs.stat("/zero.txt")).size, 0);
+    });
+  });
 });
