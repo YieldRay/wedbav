@@ -1,11 +1,12 @@
 # WEDBAV
 
-WEDBAV is a WebDAV server backed by a database. It stores an entire filesystem in a single database table — no need to explicitly create directories, similar to S3.
+WEDBAV is a WebDAV server backed by a database. It stores an entire filesystem in a single database table, so you never explicitly create directories, similar to S3.
 
-Supported databases: SQLite, PostgreSQL, MySQL  
+Supported databases: SQLite, PostgreSQL, MySQL
+
 Supported runtimes: Node.js, Deno, Bun
 
-```
+```text
   HTTP Clients (WebDAV · REST · Browser)
             │
   ┌─────────▼──────────────────────────────────┐
@@ -41,7 +42,7 @@ npm install wedbav
 
 ### Database-backed filesystem
 
-`createKyselyFs` accepts any [Kysely dialect](https://kysely.dev/docs/dialects) — the four built-in ones (PostgreSQL, MySQL, MSSQL, SQLite) as well as community dialects for PlanetScale, Cloudflare D1, Neon, libSQL, and many more. Install the dialect package for your database separately.
+`createKyselyFs` accepts any [Kysely dialect](https://kysely.dev/docs/dialects): the four built-in ones (PostgreSQL, MySQL, MSSQL, SQLite) plus community dialects such as PlanetScale, Cloudflare D1, Neon, and libSQL. Install the dialect package for your database separately.
 
 ```ts
 import { createKyselyFs, startServerFromFS } from "wedbav";
@@ -54,7 +55,7 @@ startServerFromFS(fs, { port: 3000, browser: "list" });
 
 ### Bring your own filesystem
 
-Any `FsSubset`-compatible filesystem can be passed — including the built-in adapters for the real filesystem or an in-memory filesystem:
+You can pass any `FsSubset`-compatible filesystem, including the built-in adapters for the real filesystem or an in-memory filesystem:
 
 ```ts
 import { createNodeFs, createLinkFs, createMemFs, startServerFromFS } from "wedbav";
@@ -79,7 +80,7 @@ import { createKyselyFs, createHono } from "wedbav";
 import { PostgresDialect } from "kysely";
 import { Pool } from "pg";
 
-const fs = createKyselyFs(new PostgresDialect({ pool: new Pool({ connectionString: "..." }) }), { dbType: "pg" });
+const fs = createKyselyFs(new PostgresDialect({ pool: new Pool({ connectionString: "postgresql://user_here:password_here@host/db_name" }) }), { dbType: "pg" });
 const webdavApp = createHono(fs, { browser: "list" });
 
 // Mount at a sub-path in your existing Hono app
@@ -92,7 +93,7 @@ app.route("/files", webdavApp);
 | Option    | Type                                                         | Default             | Description                                                                                                                                           |
 | --------- | ------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `port`    | `number`                                                     | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                       |
-| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"` | `"disabled"`        | `public` shows directory listing; `list` is alias to `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
+| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"` | `"disabled"`        | `public` shows directory listing; `list` is an alias for `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
 | `auth`    | `(user: string, pass: string) => boolean`                    | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                               |
 
 ## Self-hosted deployment
