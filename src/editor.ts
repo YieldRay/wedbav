@@ -45,25 +45,51 @@ export function renderEditor(pathname: string): string {
         font-size: 0.8rem; color: var(--landsoul-text-on-surface);
         min-width: 4rem; text-align: center;
       }
-      #editor-container { flex: 1; overflow: hidden; }
+      #editor-container { flex: 1; overflow: hidden; position: relative; }
       .cm-editor { height: 100%; }
       .cm-scroller { overflow: auto; }
+
+      /* loading / error overlay */
+      #editor-loading {
+        position: absolute; inset: 0; z-index: 2;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 0.75rem; padding: 1rem; text-align: center;
+        color: var(--landsoul-text-on-surface);
+        background: var(--landsoul-background, #fff);
+      }
+      #editor-loading .loading-text { font-size: 0.9rem; }
+      #editor-loading.error .landsoul-spinner { display: none; }
+      #editor-loading.error .loading-text { color: var(--landsoul-danger, #dc2626); }
+      #editor-loading .retry-link { font-size: 0.85rem; }
     </style>
   </head>
   <body>
     <div class="topbar">
       <a href="${escapeXML(encodePath(parentDir))}" title="Back to folder">\u2190</a>
       <input type="text" id="filename-input" value="${escapedFilename}" />
-      <button id="save-btn">Save</button>
-      <button id="save-close-btn">Save &amp; Close</button>
+      <button id="save-btn" disabled>Save</button>
+      <button id="save-close-btn" disabled>Save &amp; Close</button>
       <span class="save-status" id="save-status"></span>
     </div>
-    <div id="editor-container"></div>
+    <div id="editor-container">
+      <div id="editor-loading">
+        <div class="landsoul-spinner" style="--size: 32px" data-size="32px" aria-hidden="true"></div>
+        <div class="loading-text">Loading editor\u2026</div>
+      </div>
+    </div>
 
     <script type="module">
-      import { EditorView, basicSetup } from "https://esm.sh/codemirror";
-      import { EditorState } from "https://esm.sh/@codemirror/state";
-      import { languages } from "https://esm.sh/@codemirror/language-data";
+      const loadingEl = document.getElementById("editor-loading");
+      const saveBtn = document.getElementById("save-btn");
+      const saveCloseBtn = document.getElementById("save-close-btn");
+
+      function showLoadError(message) {
+        if (!loadingEl) return;
+        loadingEl.classList.add("error");
+        loadingEl.innerHTML =
+          '<div class="loading-text">' + message + '</div>' +
+          '<a class="retry-link" href="#" onclick="location.reload();return false;">Retry</a>';
+      }
 
       let PATHNAME = ${pathnameJson};
       const PARENT_DIR = ${parentDirJson};
@@ -82,6 +108,19 @@ export function renderEditor(pathname: string): string {
         }
       }
 
+      // esm.sh import can take a few seconds
+      let EditorView, basicSetup, EditorState, languages;
+      try {
+        [{ EditorView, basicSetup }, { EditorState }, { languages }] = await Promise.all([
+          import("https://esm.sh/codemirror"),
+          import("https://esm.sh/@codemirror/state"),
+          import("https://esm.sh/@codemirror/language-data"),
+        ]);
+      } catch (err) {
+        showLoadError("Failed to load the editor. Check your connection and try again.");
+        throw err;
+      }
+
       const content = await loadContent();
 
       // Load language support based on file extension
@@ -89,8 +128,12 @@ export function renderEditor(pathname: string): string {
       const ext = ORIGINAL_FILENAME.split(".").pop()?.toLowerCase();
       const lang = ext && languages.find(l => l.extensions.includes(ext) || (l.filename && l.filename.test(ORIGINAL_FILENAME)));
       if (lang) {
-        const support = await lang.load();
-        extensions.push(support);
+        try {
+          const support = await lang.load();
+          extensions.push(support);
+        } catch {
+          // highlighting optional
+        }
       }
 
       // Initialize CodeMirror
@@ -101,6 +144,12 @@ export function renderEditor(pathname: string): string {
         }),
         parent: document.getElementById("editor-container"),
       });
+
+      // ready
+      loadingEl?.remove();
+      saveBtn.disabled = false;
+      saveCloseBtn.disabled = false;
+      view.focus();
 
       function showStatus(msg) {
         const el = document.getElementById("save-status");
@@ -145,11 +194,11 @@ export function renderEditor(pathname: string): string {
         return true;
       }
 
-      document.getElementById("save-btn").addEventListener("click", async () => {
+      saveBtn.addEventListener("click", async () => {
         await save();
       });
 
-      document.getElementById("save-close-btn").addEventListener("click", async () => {
+      saveCloseBtn.addEventListener("click", async () => {
         const ok = await save();
         if (ok) window.location.href = PARENT_DIR;
       });
