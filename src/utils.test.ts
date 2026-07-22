@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { createKyselyFs } from "./fs.ts";
+import { createTestDialect } from "./test-helpers.ts";
 import {
   convertToWebStream,
   createEtag,
@@ -334,7 +334,7 @@ describe("normalizePathLike", () => {
 
 describe("readBufferOrStream", () => {
   function createFs() {
-    return createKyselyFs(new LibsqlDialect({ url: ":memory:" }), { dbType: "sqlite" });
+    return createKyselyFs(createTestDialect(), { dbType: "sqlite" });
   }
 
   it("returns a Buffer body for small files (≤ 1MB)", async () => {

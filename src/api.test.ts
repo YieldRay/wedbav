@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { describe, it } from "node:test";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { createHonoAPI } from "./api.ts";
 import { createKyselyFs } from "./fs.ts";
+import { createTestDialect } from "./test-helpers.ts";
 
 function createApi(options: { readOnly?: boolean } = {}) {
-  const dialect = new LibsqlDialect({ url: ":memory:" });
-  const fs = createKyselyFs(dialect, { dbType: "sqlite" });
+  const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
   const app = createHonoAPI(fs, { prefix: "/fs", readOnly: options.readOnly ?? false });
   return { app, fs };
 }

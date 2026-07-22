@@ -8,6 +8,10 @@ import type { DB_Type } from "./fs.ts";
 const SUPPORTED_SCHEMES = new Set(["postgresql", "postgres", "pg", "file", "libsql", "memory"] as const);
 type SUPPORTED_SCHEME = typeof SUPPORTED_SCHEMES extends Set<infer U> ? U : never;
 
+// cache=shared lets all pooled connections of one instance share the same
+// in-memory DB, which is required for transactions to see the schema/data.
+const IN_MEMORY_URL = "file::memory:?cache=shared";
+
 export function dialectFromConnectionString(connectionString: string): {
   dialect: Dialect;
   dbType: DB_Type;
@@ -22,7 +26,7 @@ export function dialectFromConnectionString(connectionString: string): {
       "In-memory SQLite is used. Data will not persist across restarts. To use a file-based SQLite database, set the connection string to something like `file:/path/to/mydb.sqlite`.",
     );
     return {
-      dialect: new LibsqlDialect({ url: "file::memory:" }),
+      dialect: new LibsqlDialect({ url: IN_MEMORY_URL }),
       dbType: "sqlite",
     };
   }
@@ -95,7 +99,7 @@ export function dialectFromConnectionStringForVercel(connectionString: string):
     connectionString.startsWith("memory:")
   ) {
     return {
-      dialect: new LibsqlDialect({ url: "file::memory:" }),
+      dialect: new LibsqlDialect({ url: IN_MEMORY_URL }),
       dbType: "sqlite",
     };
   }

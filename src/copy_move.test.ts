@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
 import {
   type CopyOperationResult,
   copyLikeOperation,
@@ -9,10 +8,10 @@ import {
   withTrailingSlash,
 } from "./copy_move.ts";
 import { createKyselyFs } from "./fs.ts";
+import { createTestDialect } from "./test-helpers.ts";
 
 function createFs() {
-  const dialect = new LibsqlDialect({ url: ":memory:" });
-  return createKyselyFs(dialect, { dbType: "sqlite" });
+  return createKyselyFs(createTestDialect(), { dbType: "sqlite" });
 }
 
 // Narrowing helpers so assertions read cleanly.

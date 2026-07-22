@@ -54,34 +54,17 @@ class KyselyFs implements FsSubset {
   }
 
   /**
-   * Run `fn` inside a database transaction. While it runs, all `$xxx` query
-   * builders on `this` use the transaction connection, so nested helper methods
-   * participate in the same transaction without threading an executor argument.
+   * Run `fn` inside a transaction. While it runs, all `$xxx` builders on `this`
+   * use the transaction connection so nested helpers join the same transaction.
    * Reentrant calls reuse the outer transaction.
    */
   private async _transaction<T>(fn: () => Promise<T>): Promise<T> {
-    if (this._executor !== this._db) {
-      // already inside a transaction — reuse it
-      return fn();
-    }
-    // Ensure the schema exists before opening a transaction.
-    await this._ready;
-    // Pin a single connection and drive BEGIN/COMMIT/ROLLBACK manually rather than
-    // using db.transaction(). This keeps every statement (including the ones issued
-    // by nested helper methods via `_executor`) on the SAME connection, which is
-    // required for in-memory SQLite where each connection is an isolated database.
-    return this._db.connection().execute(async (conn) => {
-      this._executor = conn;
+    if (this._executor !== this._db) return fn(); // reuse outer transaction
+    await this._ready; // schema must exist before the transaction connection opens
+    return this._db.transaction().execute(async (trx) => {
+      this._executor = trx;
       try {
-        await sql`BEGIN`.execute(conn);
-        try {
-          const result = await fn();
-          await sql`COMMIT`.execute(conn);
-          return result;
-        } catch (err) {
-          await sql`ROLLBACK`.execute(conn);
-          throw err;
-        }
+        return await fn();
       } finally {
         this._executor = this._db;
       }

@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { ETAG, FULL_PATH, type VFSError } from "./abstract.ts";
 import { createKyselyFs } from "./fs.ts";
+import { createTestDialect } from "./test-helpers.ts";
 
 function createFs() {
-  const dialect = new LibsqlDialect({ url: ":memory:" });
-  return createKyselyFs(dialect, { dbType: "sqlite" });
+  return createKyselyFs(createTestDialect(), { dbType: "sqlite" });
 }
 
 describe("KyselyFs", () => {
@@ -352,8 +351,11 @@ describe("KyselyFs", () => {
       const fs = createFs();
       await fs.writeFile("/recdir/a.txt", "a");
       await fs.writeFile("/recdir/sub/b.txt", "b");
-      await fs.rmdir("/recdir", { recursive: true });
+      // Must resolve cleanly (transaction commits — no dangling ROLLBACK).
+      await assert.doesNotReject(() => fs.rmdir("/recdir", { recursive: true }));
       await assert.rejects(() => fs.stat("/recdir/a.txt"));
+      await assert.rejects(() => fs.stat("/recdir/sub/b.txt"));
+      await assert.rejects(() => fs.stat("/recdir"));
     });
 
     it("throws ENOTDIR when path is a file", async () => {
@@ -1000,8 +1002,7 @@ describe("KyselyFs", () => {
   // ── ready() and schema initialization ────────────────────────────────────────
   describe("ready()", () => {
     it("resolves once the schema exists and operations work afterwards", async () => {
-      const dialect = new LibsqlDialect({ url: ":memory:" });
-      const fs = createKyselyFs(dialect, { dbType: "sqlite" });
+      const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
       await fs.ready();
       await fs.writeFile("/after-ready.txt", "ok");
       assert.equal((await fs.readFile("/after-ready.txt")).toString(), "ok");

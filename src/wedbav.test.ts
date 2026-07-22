@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { createKyselyFs } from "./fs.ts";
+import { createTestDialect } from "./test-helpers.ts";
 import { createHono } from "./wedbav.ts";
 
 async function createApp() {
-  // Use in-memory SQLite (KyselyFs) — throws proper VFSError with syscall, unlike memfs
-  const dialect = new LibsqlDialect({ url: ":memory:" });
-  const fs = createKyselyFs(dialect, { dbType: "sqlite" });
-  // Warm up: the KyselyFs constructor fires table creation without await;
-  // stat("/") waits for it to complete before any test operations run.
-  await fs.stat("/").catch(() => {});
+  const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+  await fs.ready();
   // auth: () => true bypasses env-based credentials so tests run without HTTP 401
   const app = createHono(fs, { browser: "list", auth: () => true });
   return { app, fs };
@@ -183,6 +179,20 @@ describe("DELETE with special char paths", () => {
     const propRes = await app.request(req("PROPFIND", "/%23dir/", { headers: { Depth: "0" } }));
     assert.equal(propRes.status, 404);
   });
+
+  // Regression: WebDAV DELETE of a non-empty directory must return 204, not 500.
+  // The transaction refactor previously issued a raw ROLLBACK that failed on the
+  // libsql remote driver ("cannot rollback - no transaction is active").
+  it("DELETE of a non-empty directory succeeds with 204", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/tet/a.txt", "a");
+    await fs.writeFile("/tet/sub/b.txt", "b");
+    const delRes = await app.request(req("DELETE", "/tet/"));
+    assert.equal(delRes.status, 204);
+    await assert.rejects(() => fs.stat("/tet/a.txt"));
+    await assert.rejects(() => fs.stat("/tet/sub/b.txt"));
+    await assert.rejects(() => fs.stat("/tet"));
+  });
 });
 
 // ─── F. Browser listing HTML — data-path and PATHNAME encoding ───────────────
@@ -306,9 +316,8 @@ describe("WebDAV method semantics", () => {
     // The default test app uses browser:"list", which serves directory HTML listings.
     // With the browser feature disabled, GET on a directory falls through to the
     // WebDAV file handler, which refuses to "download" a directory.
-    const dialect = new LibsqlDialect({ url: ":memory:" });
-    const fs = createKyselyFs(dialect, { dbType: "sqlite" });
-    await fs.stat("/").catch(() => {});
+    const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+    await fs.ready();
     const app = createHono(fs, { browser: "disabled", auth: () => true });
     await fs.mkdir("/adir");
     const res = await app.request(req("GET", "/adir"));
@@ -392,9 +401,8 @@ describe("conditional GET via ETag", () => {
 
 describe("authentication", () => {
   async function createAuthedApp() {
-    const dialect = new LibsqlDialect({ url: ":memory:" });
-    const fs = createKyselyFs(dialect, { dbType: "sqlite" });
-    await fs.stat("/").catch(() => {});
+    const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+    await fs.ready();
     // Only accept exactly user:pass
     const app = createHono(fs, { browser: "disabled", auth: (u, p) => u === "user" && p === "pass" });
     return { app, fs };
