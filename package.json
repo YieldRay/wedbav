@@ -2,17 +2,16 @@
   "name": "wedbav",
   "version": "0.2.0",
   "type": "module",
-  "main": "dist/index.mjs",
-  "types": "dist/index.d.mts",
+  "main": "lib/index.mjs",
+  "types": "lib/index.d.mts",
   "files": [
-    "dist"
+    "lib"
   ],
   "scripts": {
     "dev": "node --env-file=.env --watch main.ts",
     "dev:deno": "deno serve -A --watch --env-file=.env main.ts",
     "dev:bun": "bun --watch main.ts",
-    "build:app": "bun build.ts",
-    "build:lib": "tsdown",
+    "build": "tsdown",
     "start": "node main.ts",
     "type-check": "tsc --noEmit",
     "check": "biome check --unsafe",

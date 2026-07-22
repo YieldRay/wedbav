@@ -4,4 +4,5 @@ pnpm-lock.yaml
 *.db
 .env
 dist
+lib
 tmp
