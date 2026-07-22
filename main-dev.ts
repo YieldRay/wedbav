@@ -19,6 +19,7 @@ startServerFromFS(fs, {
     //! vscode client that can be used for smoke testing the webdav and wedbav api.
     //! comment these lines out to test the rendered html page.
     if (c.req.method === "GET" && c.req.path === "/") {
+      // return next();
       const url = new URL("https://wedbav-vscode.yieldray.fun/");
       url.searchParams.set("username", env.WEDBAV_USERNAME || "");
       url.searchParams.set("password", env.WEDBAV_PASSWORD || "");
