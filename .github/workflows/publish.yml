@@ -7,10 +7,6 @@ on:
         description: Package version in x.y.z format
         required: true
         type: string
-      npm_token:
-        description: npm token used for publish
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -71,8 +67,6 @@ jobs:
           npm run build
 
       - name: Publish to npm
-        env:
-          NPM_TOKEN: ${{ inputs.npm_token }}
         run: npm publish --access public --provenance
 
       - name: Create and push tag
@@ -85,7 +79,7 @@ jobs:
 
       - name: Pack npm tarball
         run: |
-          npm pack --pack-destination dist
+          npm pack --pack-destination lib
 
       - name: Create GitHub release
         env:
@@ -95,4 +89,4 @@ jobs:
           gh release create "v$VERSION" \
             --title "v$VERSION" \
             --generate-notes \
-            dist/*
+            lib/*
