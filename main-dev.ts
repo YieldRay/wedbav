@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path/posix";
 import { fileURLToPath } from "node:url";
+import { env } from "./src/env.ts";
 import { createLinkFs } from "./src/fs-node.ts";
 import { startServerFromFS } from "./src/server.ts";
-import { env } from "./src/env.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.resolve(path.dirname(__filename));

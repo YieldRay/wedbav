@@ -1,16 +1,14 @@
 import { Buffer } from "node:buffer";
 import process from "node:process";
-import { type Context, type MiddlewareHandler, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { showRoutes } from "hono/dev";
 import { logger } from "hono/logger";
 import { getMimeType } from "hono/utils/mime";
-import { type GenerateSpecOptions, generateSpecs } from "hono-openapi";
 import { ETAG, type FsSubset, type VStats } from "./abstract.ts";
-import { createHonoAPI } from "./api.ts";
 import { handleCopyMoveRequest } from "./copy_move.ts";
-import { type Bindings, env } from "./env.ts";
 import { renderEditor } from "./editor.ts";
+import { type Bindings, env } from "./env.ts";
 import { renderManager } from "./manager.ts";
 import {
   convertToWebStream,
@@ -25,17 +23,16 @@ import { davXML } from "./xml.ts";
 export interface WedbavOptions {
   auth?: ((username: string, password: string) => boolean) | undefined;
   /**
-   * Whether to enable the browser feature that serves files and directories as a static file server. It will only serve requests from browsers (based on Accept and User-Agent header).
-   * - "disabled": do not serve files and directories, return 404 instead. This is the default value.
-   * - "enabled": serve files and directories. If a directory does not contain an index.html, it will return 404.
-   * - "public": serve files and directories. If a directory does not contain an index.html, it will return a listing of the directory.
-   * - "list": alias to "public".
-   * - "private": like "public", but requires basic auth.
-   * @default {"disabled"}
+   * The browser feature serves files and directories as a static file server. It only serves requests that look like they come from browsers (based on Accept and User-Agent header).
+   * - "private": requires basic auth. If a directory does not contain an index.html, it renders a listing/manager HTML UI. This is the default value.
+   * - "public": like "private", but does not require auth.
+   * - "enabled": like "public" (no auth), but does not render the listing HTML UI — directories without an index.html return 404.
+   * - "disabled": like "private" (requires auth), but does not render the listing HTML UI — directories without an index.html return 404.
+   * @default {"private"}
    */
-  browser?: "public" | "list" | "enabled" | "disabled" | "private" | undefined;
+  browser?: "public" | "enabled" | "disabled" | "private" | undefined;
   port?: number | undefined;
-  middleware?: MiddlewareHandler
+  middleware?: MiddlewareHandler;
 }
 
 type Variables = {
@@ -86,76 +83,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
-  const VERSION = 1;
-
-  // the api openapi router, without auth
-  const api = createHonoAPI(fs, {
-    prefix: `/api/v${VERSION}` as const,
-    readOnly: false,
-  });
-
-  const createAPIMetadata = (serverUrl: string): Partial<GenerateSpecOptions> => ({
-    documentation: {
-      info: {
-        title: "wedbav API Reference",
-        version: `${VERSION}.0.0` as const,
-      },
-      components: {
-        securitySchemes: {
-          basicAuth: {
-            type: "http",
-            scheme: "basic",
-          },
-        },
-      },
-      security: [
-        {
-          basicAuth: [],
-        },
-      ],
-      servers: [
-        {
-          url: serverUrl,
-          description: "Current server",
-        },
-      ],
-    },
-  });
-
-  app.get("/openapi.json", async (c, next) => {
-    if (!c.req.header("accept")?.startsWith("application/json")) return next();
-
-    const spec = await generateSpecs(api, createAPIMetadata(c.var.url.origin));
-    return c.json(spec);
-  });
-
-  app.get("/openapi", async (c, next) => {
-    const requestHTML =
-      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-
-    if (!requestHTML) return next();
-
-    const spec = await generateSpecs(api, createAPIMetadata(c.var.url.origin));
-    return c.html(/*html*/ `<!doctype html>
-<html>
-  <head>
-    <title>API Reference</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <div id="app"></div>
-    <script src="https://raw.esm.sh/@scalar/api-reference/dist/browser/standalone.js"></script>
-    <script>
-      Scalar.createApiReference('#app', {
-        content: \`${JSON.stringify(spec)}\`
-      })
-    </script>
-  </body>
-</html>`);
-  });
-
-  const handleBrowserFeature = async (c: Context<WedbavContext>) => {
+  const handleBrowserFeature = async (c: Context<WedbavContext>, renderList: boolean) => {
     const { pathname } = c.var;
 
     let filepath = pathname;
@@ -181,12 +109,12 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     // when this is a directory
     if (!stat?.isFile()) {
-      // do not list directory
-      if (options.browser !== "list" && options.browser !== "public" && options.browser !== "private") {
+      // do not render the directory listing HTML UI ("enabled" / "disabled" modes)
+      if (!renderList) {
         return c.text("Not Found", 404);
       }
 
-      // here browser is "list", "public" or "private" and the file does not exist, we return an index of the directory
+      // render an index/manager UI of the directory ("public" / "private" modes)
       const files = await fs.readdir(pathname, { withFileTypes: true }).catch((e) => {
         if (isErrnoException(e)) return false as const;
         throw e;
@@ -240,23 +168,27 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     }
   };
 
-  // browser feature, this part do not require auth
+  // browser feature, this part does not require auth ("public" / "enabled")
   app.get("/*", async (c, next) => {
-    const { browser = "disabled" } = options;
-    // if browser is disabled/private, skip
-    if (browser === "disabled" || browser === "private") {
-      // we go to the next middleware, which is the auth middleware
-      // so all GET files requests are protected.
+    const { browser = "private" } = options;
+    // "private"/"disabled" require auth: fall through to the auth middleware,
+    // so all GET file requests are protected.
+    if (browser === "private" || browser === "disabled") {
       return next();
     }
 
-    // Editor page: /path/to/file?edit (public/list mode — auth handled on save via PUT/MOVE)
-    const url = new URL(c.req.url);
-    if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
-      return c.html(renderEditor(c.var.pathname));
+    // "public" renders the listing UI; "enabled" does not.
+    const renderList = browser === "public";
+
+    // Editor page: /path/to/file?edit (auth handled on save via PUT/MOVE)
+    if (renderList) {
+      const url = new URL(c.req.url);
+      if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
+        return c.html(renderEditor(c.var.pathname));
+      }
     }
 
-    return handleBrowserFeature(c);
+    return handleBrowserFeature(c, renderList);
   });
 
   // basic auth
@@ -287,22 +219,24 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     }),
   );
 
-  // browser feature for private (requires auth)
+  // browser feature for authenticated modes ("private" / "disabled")
   app.get("/*", async (c, next) => {
-    const { browser = "disabled" } = options;
-    if (browser === "private") {
+    const { browser = "private" } = options;
+    if (browser === "private" || browser === "disabled") {
+      // "private" renders the listing UI; "disabled" does not.
+      const renderList = browser === "private";
+
       // Editor page: /path/to/file?edit
-      const url = new URL(c.req.url);
-      if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
-        return c.html(renderEditor(c.var.pathname));
+      if (renderList) {
+        const url = new URL(c.req.url);
+        if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
+          return c.html(renderEditor(c.var.pathname));
+        }
       }
-      return handleBrowserFeature(c);
+      return handleBrowserFeature(c, renderList);
     }
     return next();
   });
-
-  // api routes
-  app.route("/", api);
 
   app.on("PROPFIND", "/*", async (c) => {
     const { pathname } = c.var;

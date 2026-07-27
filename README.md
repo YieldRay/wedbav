@@ -50,7 +50,7 @@ import { LibsqlDialect } from "@libsql/kysely-libsql";
 
 // dbType "sqlite" applies to LibSQL since it is SQLite-compatible
 const fs = createKyselyFs(new LibsqlDialect({ url: "file:data.db" }), { dbType: "sqlite" });
-startServerFromFS(fs, { port: 3000, browser: "list" });
+startServerFromFS(fs, { port: 3000, browser: "public" });
 ```
 
 ### Bring your own filesystem
@@ -81,7 +81,7 @@ import { PostgresDialect } from "kysely";
 import { Pool } from "pg";
 
 const fs = createKyselyFs(new PostgresDialect({ pool: new Pool({ connectionString: "postgresql://user_here:password_here@host/db_name" }) }), { dbType: "pg" });
-const webdavApp = createHono(fs, { browser: "list" });
+const webdavApp = createHono(fs, { browser: "public" });
 
 // Mount at a sub-path in your existing Hono app
 const app = new Hono();
@@ -93,7 +93,7 @@ app.route("/files", webdavApp);
 | Option    | Type                                                         | Default             | Description                                                                                                                                           |
 | --------- | ------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `port`    | `number`                                                     | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                       |
-| `browser` | `"disabled" \| "public" \| "list" \| "enabled" \| "private"` | `"disabled"`        | `public` shows directory listing; `list` is an alias for `public`; `enabled` also serves files inline; `private` is like `public` but requires basic auth |
+| `browser` | `"private" \| "public" \| "enabled" \| "disabled"`           | `"private"`         | `private` requires basic auth and renders the directory-listing UI; `public` is the same without auth; `enabled` is like `public` but does not render the listing UI (dirs without `index.html` return 404); `disabled` is like `private` but does not render the listing UI |
 | `auth`    | `(user: string, pass: string) => boolean`                    | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                               |
 
 ## Self-hosted deployment
@@ -116,7 +116,7 @@ WEDBAV_CONNECTION_STRING=file:/path/to/database.db
 PORT=3000
 WEDBAV_USERNAME=admin
 WEDBAV_PASSWORD=secret
-WEDBAV_BROWSER=public      # disabled | public | list | enabled | private
+WEDBAV_BROWSER=private     # private | public | enabled | disabled
 WEDBAV_TABLE=filesystem    # custom table name
 ```
 

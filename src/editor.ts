@@ -1,22 +1,22 @@
-import { escapeXML } from "./xml.ts";
 import { encodePath } from "./utils.ts";
+import { escapeXML } from "./xml.ts";
 
 /**
  * Renders the full HTML page for the file editor.
  * @param pathname - The full path of the file being edited (e.g. "/docs/notes.txt")
  */
 export function renderEditor(pathname: string): string {
-    // Extract the filename (basename) and parent directory
-    const segments = pathname.split("/").filter(Boolean);
-    const filename = segments.pop() || "";
-    const parentDir = `/${segments.join("/")}${segments.length ? "/" : ""}`;
+  // Extract the filename (basename) and parent directory
+  const segments = pathname.split("/").filter(Boolean);
+  const filename = segments.pop() || "";
+  const parentDir = `/${segments.join("/")}${segments.length ? "/" : ""}`;
 
-    const escapedFilename = escapeXML(filename);
-    const pathnameJson = JSON.stringify(pathname);
-    const parentDirJson = JSON.stringify(encodePath(parentDir));
-    const filenameJson = JSON.stringify(filename);
+  const escapedFilename = escapeXML(filename);
+  const pathnameJson = JSON.stringify(pathname);
+  const parentDirJson = JSON.stringify(encodePath(parentDir));
+  const filenameJson = JSON.stringify(filename);
 
-    return `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />

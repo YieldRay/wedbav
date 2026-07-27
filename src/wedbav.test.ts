@@ -8,7 +8,7 @@ async function createApp() {
   const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
   await fs.ready();
   // auth: () => true bypasses env-based credentials so tests run without HTTP 401
-  const app = createHono(fs, { browser: "list", auth: () => true });
+  const app = createHono(fs, { browser: "public", auth: () => true });
   return { app, fs };
 }
 
@@ -120,9 +120,11 @@ describe("MOVE with special char paths", () => {
   it("renames @src.txt to @dst.txt", async () => {
     const { app, fs } = await createApp();
     await fs.writeFile("/@src.txt", "data");
-    const moveRes = await app.request(req("MOVE", "/%40src.txt", {
-      headers: { Destination: "http://localhost/%40dst.txt" },
-    }));
+    const moveRes = await app.request(
+      req("MOVE", "/%40src.txt", {
+        headers: { Destination: "http://localhost/%40dst.txt" },
+      }),
+    );
     assert.ok(moveRes.status === 201 || moveRes.status === 204, `MOVE status: ${moveRes.status}`);
     assert.equal((await app.request(req("GET", "/%40dst.txt"))).status, 200);
     assert.equal((await app.request(req("GET", "/%40src.txt"))).status, 404);
@@ -131,9 +133,11 @@ describe("MOVE with special char paths", () => {
   it("renames #src.txt to #dst.txt", async () => {
     const { app, fs } = await createApp();
     await fs.writeFile("/#src.txt", "data");
-    const moveRes = await app.request(req("MOVE", "/%23src.txt", {
-      headers: { Destination: "http://localhost/%23dst.txt" },
-    }));
+    const moveRes = await app.request(
+      req("MOVE", "/%23src.txt", {
+        headers: { Destination: "http://localhost/%23dst.txt" },
+      }),
+    );
     assert.ok(moveRes.status === 201 || moveRes.status === 204, `MOVE status: ${moveRes.status}`);
     assert.equal((await app.request(req("GET", "/%23dst.txt"))).status, 200);
     assert.equal((await app.request(req("GET", "/%23src.txt"))).status, 404);
@@ -142,9 +146,11 @@ describe("MOVE with special char paths", () => {
   it("renames across special chars: @src to #dst", async () => {
     const { app, fs } = await createApp();
     await fs.writeFile("/@src.txt", "data");
-    const moveRes = await app.request(req("MOVE", "/%40src.txt", {
-      headers: { Destination: "http://localhost/%23dst.txt" },
-    }));
+    const moveRes = await app.request(
+      req("MOVE", "/%40src.txt", {
+        headers: { Destination: "http://localhost/%23dst.txt" },
+      }),
+    );
     assert.ok(moveRes.status === 201 || moveRes.status === 204);
     assert.equal((await app.request(req("GET", "/%23dst.txt"))).status, 200);
   });
@@ -279,9 +285,11 @@ describe("Location header encoding", () => {
   it("COPY of @src/ returns Location: /%40dst/", async () => {
     const { app, fs } = await createApp();
     await fs.mkdir("/@src/");
-    const res = await app.request(req("COPY", "/%40src/", {
-      headers: { Destination: "http://localhost/%40dst/" },
-    }));
+    const res = await app.request(
+      req("COPY", "/%40src/", {
+        headers: { Destination: "http://localhost/%40dst/" },
+      }),
+    );
     assert.ok(res.status === 201 || res.status === 204, `COPY status: ${res.status}`);
     if (res.status === 201) {
       const location = res.headers.get("Location");
@@ -292,9 +300,11 @@ describe("Location header encoding", () => {
   it("COPY of #src/ returns Location: /%23dst/", async () => {
     const { app, fs } = await createApp();
     await fs.mkdir("/#src/");
-    const res = await app.request(req("COPY", "/%23src/", {
-      headers: { Destination: "http://localhost/%23dst/" },
-    }));
+    const res = await app.request(
+      req("COPY", "/%23src/", {
+        headers: { Destination: "http://localhost/%23dst/" },
+      }),
+    );
     assert.ok(res.status === 201 || res.status === 204, `COPY status: ${res.status}`);
     if (res.status === 201) {
       const location = res.headers.get("Location");
@@ -312,10 +322,10 @@ describe("WebDAV method semantics", () => {
     assert.equal(res.status, 201);
   });
 
-  it("GET on a directory in browser:disabled mode returns 404 (WebDAV download semantics)", async () => {
-    // The default test app uses browser:"list", which serves directory HTML listings.
-    // With the browser feature disabled, GET on a directory falls through to the
-    // WebDAV file handler, which refuses to "download" a directory.
+  it("GET on a directory in browser:disabled mode returns 404 (no listing UI)", async () => {
+    // The default test app uses browser:"public", which renders directory HTML listings.
+    // "disabled" still serves files (behind auth) but never renders the listing UI,
+    // so a directory without an index.html returns 404.
     const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
     await fs.ready();
     const app = createHono(fs, { browser: "disabled", auth: () => true });
@@ -324,7 +334,7 @@ describe("WebDAV method semantics", () => {
     assert.equal(res.status, 404);
   });
 
-  it("GET on a directory in browser:list mode returns an HTML listing (200)", async () => {
+  it("GET on a directory in browser:public mode returns an HTML listing (200)", async () => {
     const { app, fs } = await createApp();
     await fs.mkdir("/adir");
     const res = await app.request(req("GET", "/adir/", { headers: { Accept: "text/html" } }));

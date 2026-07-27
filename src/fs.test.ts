@@ -815,8 +815,18 @@ describe("KyselyFs", () => {
     // These names are stored literally in the DB — the server decodes URLs before
     // calling fs methods, so the fs always sees the real decoded name.
     const specialNames = [
-      "@at", "#hash", "&amp", "=eq", "+plus", "hello world",
-      "%percent", "!bang", "a&b=c", "foo#bar", "😀emoji", "привет",
+      "@at",
+      "#hash",
+      "&amp",
+      "=eq",
+      "+plus",
+      "hello world",
+      "%percent",
+      "!bang",
+      "a&b=c",
+      "foo#bar",
+      "😀emoji",
+      "привет",
     ];
 
     for (const name of specialNames) {
@@ -848,7 +858,10 @@ describe("KyselyFs", () => {
         await fs.unlink(`/special/${name}.txt`);
         await assert.rejects(
           () => fs.stat(`/special/${name}.txt`),
-          (err: VFSError) => { assert.equal(err.code, "ENOENT"); return true; },
+          (err: VFSError) => {
+            assert.equal(err.code, "ENOENT");
+            return true;
+          },
         );
       });
 

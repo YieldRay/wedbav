@@ -1,37 +1,37 @@
 import type { Dirent } from "node:fs";
 import type { FsSubset } from "./abstract.ts";
-import { escapeXML } from "./xml.ts";
 import { encodePath } from "./utils.ts";
+import { escapeXML } from "./xml.ts";
 
 interface EntryInfo {
-    name: string;
-    isDir: boolean;
-    size: number;
-    mtime: Date;
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtime: Date;
 }
 
 function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function formatDate(d: Date): string {
-    if (d.getTime() === 0) return "—";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (d.getTime() === 0) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function buildBreadcrumb(pathname: string): string {
-    const segments = pathname.split("/").filter(Boolean);
-    const parts: string[] = [`<a href="/">~</a>`];
-    let accumulated = "";
-    for (const seg of segments) {
-        accumulated += `/${seg}`;
-        parts.push(`<span aria-hidden="true">/</span><a href="${encodePath(accumulated)}/">${escapeXML(seg)}</a>`);
-    }
-    return parts.join("");
+  const segments = pathname.split("/").filter(Boolean);
+  const parts: string[] = [`<a href="/">~</a>`];
+  let accumulated = "";
+  for (const seg of segments) {
+    accumulated += `/${seg}`;
+    parts.push(`<span aria-hidden="true">/</span><a href="${encodePath(accumulated)}/">${escapeXML(seg)}</a>`);
+  }
+  return parts.join("");
 }
 
 // Inline SVGs avoid per-row network requests to iconify.design
@@ -43,15 +43,15 @@ const ICON_PENCIL = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height=
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
 function buildRow(entry: EntryInfo, pathname: string): string {
-    const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
-    const escapedName = escapeXML(entry.name);
-    // data-path must be URL-encoded: fetch() treats # as fragment and ? as query if unencoded
-    const encodedPath = escapeXML(encodePath(pathname) + encodeURIComponent(entry.name) + (entry.isDir ? "/" : ""));
-    const formattedDate = formatDate(entry.mtime);
-    const formattedSize = entry.isDir ? "" : formatSize(entry.size);
-    const displayName = escapedName + (entry.isDir ? "/" : "");
+  const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
+  const escapedName = escapeXML(entry.name);
+  // data-path must be URL-encoded: fetch() treats # as fragment and ? as query if unencoded
+  const encodedPath = escapeXML(encodePath(pathname) + encodeURIComponent(entry.name) + (entry.isDir ? "/" : ""));
+  const formattedDate = formatDate(entry.mtime);
+  const formattedSize = entry.isDir ? "" : formatSize(entry.size);
+  const displayName = escapedName + (entry.isDir ? "/" : "");
 
-    return `<li class="file-row">
+  return `<li class="file-row">
       <a class="row-link" href="${href}" aria-label="${escapedName}"></a>
       <span class="row-inner">
         <span class="name">${entry.isDir ? ICON_FOLDER : ICON_FILE}<span class="name-inner"><span class="name-text">${displayName}</span><span class="meta-sub">${formattedDate}${entry.isDir ? "" : `<span class="meta-sub-sep">·</span><span class="meta-sub-size">${formattedSize}</span>`}</span></span></span>
@@ -67,33 +67,33 @@ function buildRow(entry: EntryInfo, pathname: string): string {
 }
 
 export async function renderManager(fs: FsSubset, pathname: string, dir: string, files: Dirent[]): Promise<string> {
-    const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
+  const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
 
-    const entries: EntryInfo[] = await Promise.all(
-        files.map(async (entry) => {
-            const entryPath = normalizedPathname + entry.name;
-            let size = 0;
-            let mtime = new Date(0);
-            try {
-                const stat = await fs.stat(entryPath);
-                size = stat.size;
-                mtime = stat.mtime;
-            } catch {
-                // entry disappeared between readdir and stat
-            }
-            return { name: entry.name, isDir: entry.isDirectory(), size, mtime };
-        }),
-    );
+  const entries: EntryInfo[] = await Promise.all(
+    files.map(async (entry) => {
+      const entryPath = normalizedPathname + entry.name;
+      let size = 0;
+      let mtime = new Date(0);
+      try {
+        const stat = await fs.stat(entryPath);
+        size = stat.size;
+        mtime = stat.mtime;
+      } catch {
+        // entry disappeared between readdir and stat
+      }
+      return { name: entry.name, isDir: entry.isDirectory(), size, mtime };
+    }),
+  );
 
-    entries.sort((a, b) => {
-        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-        return a.name.localeCompare(b.name);
-    });
+  entries.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 
-    const rows = entries.map((e) => buildRow(e, normalizedPathname)).join("\n");
-    const parentRow =
-        normalizedPathname !== "/"
-            ? `<li class="file-row parent-row">
+  const rows = entries.map((e) => buildRow(e, normalizedPathname)).join("\n");
+  const parentRow =
+    normalizedPathname !== "/"
+      ? `<li class="file-row parent-row">
       <a class="row-link" href="../" aria-label="Parent directory"></a>
       <span class="row-inner">
         <span class="name">${ICON_UP}<span class="name-inner"><span class="name-text">../</span></span></span>
@@ -106,11 +106,11 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         </span>
       </span>
     </li>`
-            : "";
-    const breadcrumb = buildBreadcrumb(normalizedPathname);
-    const pathnameJson = JSON.stringify(encodePath(normalizedPathname));
+      : "";
+  const breadcrumb = buildBreadcrumb(normalizedPathname);
+  const pathnameJson = JSON.stringify(encodePath(normalizedPathname));
 
-    return `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />

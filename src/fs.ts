@@ -243,10 +243,7 @@ class KyselyFs implements FsSubset {
       }
 
       // now we can safely copy the file
-      const file = await this.$select
-        .select(["size", "content", "etag"])
-        .where("path", "=", srcKey)
-        .executeTakeFirst();
+      const file = await this.$select.select(["size", "content", "etag"]).where("path", "=", srcKey).executeTakeFirst();
       if (!file) {
         throw new VFSError("no such file or directory", {
           syscall: "copyfile",
