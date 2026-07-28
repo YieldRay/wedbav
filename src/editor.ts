@@ -31,7 +31,7 @@ export function renderEditor(pathname: string): string {
       body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
       .topbar {
         display: flex; align-items: center; gap: 0.5rem;
-        padding: 0.5rem 1rem; border-bottom: 1px solid var(--landsoul-border, #ddd);
+        padding: 0.5rem 1rem; border-bottom: 1px solid var(--landsoul-border);
         flex-shrink: 0; flex-wrap: wrap;
       }
       .topbar a { text-decoration: none; font-size: 1.2rem; padding: 0.2rem 0.4rem; border-radius: 4px; }
@@ -55,17 +55,17 @@ export function renderEditor(pathname: string): string {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 0.75rem; padding: 1rem; text-align: center;
         color: var(--landsoul-text-on-surface);
-        background: var(--landsoul-background, #fff);
+        background: var(--landsoul-background);
       }
       #editor-loading .loading-text { font-size: 0.9rem; }
       #editor-loading.error .landsoul-spinner { display: none; }
-      #editor-loading.error .loading-text { color: var(--landsoul-danger, #dc2626); }
+      #editor-loading.error .loading-text { color: var(--landsoul-danger); }
       #editor-loading .retry-link { font-size: 0.85rem; }
     </style>
   </head>
   <body>
     <div class="topbar">
-      <a href="${escapeXML(encodePath(parentDir))}" title="Back to folder">\u2190</a>
+      <a href="${escapeXML(encodePath(parentDir))}" title="Back to folder">←</a>
       <input type="text" id="filename-input" value="${escapedFilename}" />
       <button id="save-btn" disabled>Save</button>
       <button id="save-close-btn" disabled>Save &amp; Close</button>
@@ -74,7 +74,7 @@ export function renderEditor(pathname: string): string {
     <div id="editor-container">
       <div id="editor-loading">
         <div class="landsoul-spinner" style="--size: 32px" data-size="32px" aria-hidden="true"></div>
-        <div class="loading-text">Loading editor\u2026</div>
+        <div class="loading-text">Loading editor…</div>
       </div>
     </div>
 
@@ -86,9 +86,53 @@ export function renderEditor(pathname: string): string {
       function showLoadError(message) {
         if (!loadingEl) return;
         loadingEl.classList.add("error");
-        loadingEl.innerHTML =
-          '<div class="loading-text">' + message + '</div>' +
-          '<a class="retry-link" href="#" onclick="location.reload();return false;">Retry</a>';
+        loadingEl.replaceChildren(
+          Object.assign(document.createElement("div"), {
+            className: "loading-text",
+            textContent: message,
+          }),
+          Object.assign(document.createElement("a"), {
+            className: "retry-link",
+            href: "#",
+            textContent: "Retry",
+            onclick: () => { location.reload(); return false; },
+          }),
+        );
+      }
+
+      function showAlert(content, title, lightDismiss = true) {
+        const openElement = (element) => {
+          if (lightDismiss) element.showPopover();
+          else element.showModal();
+        };
+        const closeElement = (element) => {
+          if (lightDismiss) element.hidePopover();
+          else element.close();
+        };
+        const dialog = Object.assign(document.createElement("dialog"), { popover: "auto" });
+        document.body.appendChild(dialog);
+        const header = title
+          ? Object.assign(document.createElement("header"), {
+              textContent: title,
+              style: "font-weight: bold",
+            })
+          : null;
+        const body = Object.assign(document.createElement("section"), {
+          textContent: content,
+          style: "margin-top: 8px",
+        });
+        const ok = Object.assign(document.createElement("button"), {
+          textContent: "OK",
+          onclick: () => closeElement(dialog),
+          style: "margin-top: 8px;width:100%",
+        });
+        const footer = Object.assign(document.createElement("footer"), {});
+
+        openElement(dialog);
+        footer.appendChild(ok);
+        if (header) dialog.appendChild(header);
+        dialog.appendChild(body);
+        dialog.appendChild(footer);
       }
 
       let PATHNAME = ${pathnameJson};
@@ -152,47 +196,66 @@ export function renderEditor(pathname: string): string {
       saveCloseBtn.disabled = false;
       view.focus();
 
-      function showStatus(msg) {
+      // Show a status message. When 'persist' is true (e.g. "Saving…") the
+      // message stays until it's replaced; otherwise it auto-clears after 3s.
+      function showStatus(msg, persist) {
         const el = document.getElementById("save-status");
         el.textContent = msg;
+        if (persist) return;
         setTimeout(() => { if (el.textContent === msg) el.textContent = ""; }, 3000);
       }
 
       async function save() {
         const newName = document.getElementById("filename-input").value.trim();
-        if (!newName) { alert("Filename cannot be empty"); return false; }
+        if (!newName) { showAlert("Filename cannot be empty.", "Invalid filename"); return false; }
 
-        let currentPath = PATHNAME;
+        // Indicate that a save is in progress and lock the buttons.
+        showStatus("Saving…", true);
+        saveBtn.disabled = true;
+        saveCloseBtn.disabled = true;
 
-        // Rename if filename changed
-        if (newName !== ORIGINAL_FILENAME) {
-          const newPath = PARENT_DIR + encodeURIComponent(newName);
-          const r = await fetch(currentPath, {
-            method: "MOVE",
-            headers: { "Destination": location.origin + newPath },
-          });
+        try {
+          let currentPath = PATHNAME;
+
+          // Rename if filename changed
+          if (newName !== ORIGINAL_FILENAME) {
+            const newPath = PARENT_DIR + encodeURIComponent(newName);
+            const r = await fetch(currentPath, {
+              method: "MOVE",
+              headers: { "Destination": location.origin + newPath },
+            });
+            if (r.status === 401) { window.location.reload(); return false; }
+            if (!r.ok && r.status !== 201 && r.status !== 204) {
+              showStatus("Save failed");
+              showAlert(r.status + " " + await r.text(), "Rename failed");
+              return false;
+            }
+            currentPath = newPath;
+            PATHNAME = newPath;
+            ORIGINAL_FILENAME = newName;
+            history.replaceState(null, "", currentPath + "?edit");
+          }
+
+          // Save content
+          const body = view.state.doc.toString();
+          const r = await fetch(currentPath, { method: "PUT", body });
           if (r.status === 401) { window.location.reload(); return false; }
-          if (!r.ok && r.status !== 201 && r.status !== 204) {
-            alert("Rename failed: " + r.status + " " + await r.text());
+          if (!r.ok && r.status !== 201) {
+            showStatus("Save failed");
+            showAlert(r.status + " " + await r.text(), "Save failed");
             return false;
           }
-          currentPath = newPath;
-          PATHNAME = newPath;
-          ORIGINAL_FILENAME = newName;
-          history.replaceState(null, "", currentPath + "?edit");
-        }
 
-        // Save content
-        const body = view.state.doc.toString();
-        const r = await fetch(currentPath, { method: "PUT", body });
-        if (r.status === 401) { window.location.reload(); return false; }
-        if (!r.ok && r.status !== 201) {
-          alert("Save failed: " + r.status + " " + await r.text());
+          showStatus("Saved");
+          return true;
+        } catch (err) {
+          showStatus("Save failed");
+          showAlert(String(err), "Save failed");
           return false;
+        } finally {
+          saveBtn.disabled = false;
+          saveCloseBtn.disabled = false;
         }
-
-        showStatus("Saved");
-        return true;
       }
 
       saveBtn.addEventListener("click", async () => {
