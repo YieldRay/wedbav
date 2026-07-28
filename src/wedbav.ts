@@ -155,6 +155,13 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
   // Serve a single file (with ETag / conditional-request handling).
   const serveFile = async (c: Context<WedbavContext>, filepath: string, stat: Awaited<ReturnType<typeof fs.stat>>) => {
+    // Files are backed by a live, editable DB — never a static asset — so no cache
+    // (browser, proxy, or CDN) may store the body. `no-store` is the vendor-neutral
+    // directive every compliant cache must honor; the rest are belt-and-suspenders
+    // for intermediaries that mishandle `no-store` alone. This prevents a stale
+    // edge copy from being served after an edit.
+    c.header("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+
     const etag = (stat as VStats)[ETAG];
     if (etag) {
       c.header("etag", etag);

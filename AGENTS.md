@@ -60,14 +60,13 @@ Kysely ORM → SQLite / PostgreSQL / MySQL
 - **`src/manager.ts`** — `renderManager()`: HTML directory-listing/file-manager page (upload, mkdir, rename, delete) for browser modes
 - **`src/editor.ts`** — `renderEditor()`: CodeMirror-based in-browser file editor page (`?edit`). It is part of the management/listing surface: `?edit` is only served when the `list` feature is enabled and is guarded by `list`'s access level (auth for `"private"`, open for `"public"`). When `list` is disabled the `?edit` query is ignored and the request is served as a normal file (governed by `browser`).
 - **`src/xml.ts`** — `escapeXML()` and WebDAV multistatus XML builders (`davXML`)
-- **`src/connection-string.ts`** — Resolves a `WEDBAV_CONNECTION_STRING` into a Kysely dialect + `dbType`. `dialectFromConnectionString` for standard runtimes, `dialectFromConnectionStringForVercel` for Vercel (returns the `pg` pool for connection pooling)
+- **`src/connection-string.ts`** — Resolves a `WEDBAV_CONNECTION_STRING` into a Kysely dialect + `dbType` via `dialectFromConnectionString`
 - **`src/server.ts`** — `startServer()` / `startServerFromFS()`: runtime detection (Deno/Bun/Node), server startup
 - **`src/env.ts`** — All environment variables (`WEDBAV_USERNAME`, `WEDBAV_PASSWORD`, `PORT`, `WEDBAV_BROWSER`, `WEDBAV_LIST`, `WEDBAV_TABLE`, `WEDBAV_CONNECTION_STRING`)
 - **`src/fs-node.ts`** — Adapters: `createNodeFs()`, `createLinkFs()`, `createMemFs()` — wrap real/in-memory filesystems as `FsSubset`
 - **`src/utils.ts`** — Shared helpers: `mapErrnoToStatus()`, `createEtag()`, `encodePathForSQL()`, `decodeURISafe()`, `encodePath()`, etc.
-- **`src/index.ts`** — Library public API barrel; re-exports `createHono`, `createHonoAPI`, `createKyselyFs`, all adapters, and all abstract types
-- **`index.ts`** — Vercel/production entry; requires `WEDBAV_CONNECTION_STRING`, uses `dialectFromConnectionStringForVercel`
-- **`main.ts`** — Local dev entry; resolves the dialect from `WEDBAV_CONNECTION_STRING` (defaults to `:memory:`) and calls `startServer()`
+- **`src/index.ts`** — Library public API barrel; re-exports `createHono`, `createKyselyFs`, all adapters, and all abstract types
+- **`main.ts`** — Production/dev entry; resolves the dialect from `WEDBAV_CONNECTION_STRING` (defaults to `:memory:`) and calls `startServer()`
 - **`main-dev.ts`** — Alternate dev entry; uses `createLinkFs` to serve the local `./tmp` directory at `/`
 
 ### Important Design Details

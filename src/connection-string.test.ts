@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { dialectFromConnectionString, dialectFromConnectionStringForVercel } from "./connection-string.ts";
+import { dialectFromConnectionString } from "./connection-string.ts";
 
 describe("dialectFromConnectionString", () => {
   it("defaults empty string to in-memory sqlite", () => {
@@ -43,27 +43,5 @@ describe("dialectFromConnectionString", () => {
 
   it("throws for an unsupported scheme", () => {
     assert.throws(() => dialectFromConnectionString("mysql://user:pw@localhost/db"), /Unsupported connection string/);
-  });
-});
-
-describe("dialectFromConnectionStringForVercel", () => {
-  it("resolves memory to sqlite with no pool", () => {
-    const result = dialectFromConnectionStringForVercel(":memory:");
-    assert.equal(result.dbType, "sqlite");
-    assert.equal(result.pool, undefined);
-  });
-
-  it("resolves postgres to pg and returns a pool for pooling", () => {
-    const result = dialectFromConnectionStringForVercel("postgres://user:pw@localhost:5432/db");
-    assert.equal(result.dbType, "pg");
-    assert.ok(result.pool, "a pg Pool must be returned for connection pooling");
-  });
-
-  it("resolves libsql to sqlite", () => {
-    assert.equal(dialectFromConnectionStringForVercel("libsql://example.turso.io").dbType, "sqlite");
-  });
-
-  it("throws for an unsupported scheme (e.g. file:)", () => {
-    assert.throws(() => dialectFromConnectionStringForVercel("file:/tmp/x.sqlite"), /unsupported connection string/i);
   });
 });

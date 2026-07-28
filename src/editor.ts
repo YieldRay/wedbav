@@ -97,10 +97,11 @@ export function renderEditor(pathname: string): string {
 
       let view;
 
-      // Fetch file content
+      // Fetch file content. cache: "no-store" bypasses the browser HTTP cache so
+      // we never load a stale copy (which would otherwise be written back on save).
       async function loadContent() {
         try {
-          const r = await fetch(PATHNAME);
+          const r = await fetch(PATHNAME, { cache: "no-store" });
           if (!r.ok) return "";
           return await r.text();
         } catch {

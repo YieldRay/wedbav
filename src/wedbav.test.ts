@@ -405,6 +405,32 @@ describe("conditional GET via ETag", () => {
     );
     assert.equal(second.status, 304);
   });
+
+  it("sends cache-control: no-store so no browser/proxy/CDN serves a stale copy", async () => {
+    const { app, fs } = await createApp();
+    await fs.writeFile("/doc.txt", "v1");
+    const first = await app.request(req("GET", "/doc.txt"));
+    assert.equal(first.status, 200);
+    const cc = first.headers.get("cache-control") ?? "";
+    // `no-store` is the vendor-neutral directive that prevents any cache (including
+    // a CDN) from storing the body; the others harden against quirky intermediaries.
+    assert.match(cc, /no-store/);
+    assert.match(cc, /no-cache/);
+    const etag = first.headers.get("etag");
+
+    // A 304 revalidation response must also carry the no-store directive.
+    const notModified = await app.request(req("GET", "/doc.txt", { headers: { "If-None-Match": etag! } }));
+    assert.equal(notModified.status, 304);
+    assert.match(notModified.headers.get("cache-control") ?? "", /no-store/);
+
+    // After an edit the ETag changes, so the old If-None-Match no longer matches
+    // and the fresh content is served (never a stale 304).
+    await app.request(req("PUT", "/doc.txt", { body: "v2" }));
+    const afterEdit = await app.request(req("GET", "/doc.txt", { headers: { "If-None-Match": etag! } }));
+    assert.equal(afterEdit.status, 200);
+    assert.equal(await afterEdit.text(), "v2");
+    assert.notEqual(afterEdit.headers.get("etag"), etag);
+  });
 });
 
 // ─── K. Authentication ──────────────────────────────────────────────────────
