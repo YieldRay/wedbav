@@ -9,6 +9,7 @@ import { createHono, type WedbavOptions } from "./wedbav.ts";
 const port = Number(env.PORT || 3000);
 const tableName = env.WEDBAV_TABLE;
 const browser = env.WEDBAV_BROWSER as WedbavOptions["browser"];
+const list = env.WEDBAV_LIST as WedbavOptions["list"];
 
 export default async function startServer(dialect: Dialect, dbType?: DB_Type, options: Partial<WedbavOptions> = {}) {
   const kyselyFs = createKyselyFs(dialect, { tableName, dbType });
@@ -16,8 +17,11 @@ export default async function startServer(dialect: Dialect, dbType?: DB_Type, op
 }
 
 export function startServerFromFS(fs: FsSubset, options: Partial<WedbavOptions> = {}) {
-  if (!options.browser) {
+  if (options.browser === undefined) {
     options.browser = browser;
+  }
+  if (options.list === undefined) {
+    options.list = list;
   }
 
   const app = createHono(fs, options);

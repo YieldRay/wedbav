@@ -20,17 +20,38 @@ import {
 } from "./utils.ts";
 import { davXML } from "./xml.ts";
 
+/**
+ * A feature access level:
+ * - "private": the feature is enabled but requires basic auth.
+ * - "public": the feature is enabled and does not require auth.
+ * - "false" / false: the feature is disabled.
+ */
+export type FeatureMode = "public" | "private" | "false" | false;
+
 export interface WedbavOptions {
   auth?: ((username: string, password: string) => boolean) | undefined;
   /**
-   * The browser feature serves files and directories as a static file server. It only serves requests that look like they come from browsers (based on Accept and User-Agent header).
-   * - "private": requires basic auth. If a directory does not contain an index.html, it renders a listing/manager HTML UI. This is the default value.
-   * - "public": like "private", but does not require auth.
-   * - "enabled": like "public" (no auth), but does not render the listing HTML UI — directories without an index.html return 404.
-   * - "disabled": like "private" (requires auth), but does not render the listing HTML UI — directories without an index.html return 404.
+   * The browser feature serves files as a static file server. It only serves
+   * requests that look like they come from browsers (based on the Accept and
+   * User-Agent headers).
+   * - "private": serve files, but require basic auth. This is the default value.
+   * - "public": serve files without auth.
+   * - "false" / false: disable file serving; requests fall through to WebDAV semantics.
    * @default {"private"}
    */
-  browser?: "public" | "enabled" | "disabled" | "private" | undefined;
+  browser?: FeatureMode | undefined;
+  /**
+   * The directory auto-listing feature renders an HTML listing/manager UI for
+   * directories that do not contain an index.html. It only takes effect when
+   * `browser` is enabled (not "false"/false).
+   * - "private": render the listing, but require basic auth.
+   * - "public": render the listing without auth.
+   * - "false" / false: do not render a listing; directories without an index.html return 404.
+   *
+   * When unset, `list` inherits the value of `browser`.
+   * @default inherits `browser`
+   */
+  list?: FeatureMode | undefined;
   port?: number | undefined;
   middleware?: MiddlewareHandler;
 }
@@ -46,8 +67,43 @@ export type WedbavContext = { Variables: Variables; Bindings: Bindings };
 
 const SERVER_VERSION = displayVersion();
 
+type ResolvedMode = "public" | "private" | false;
+
+/** Normalize a {@link FeatureMode} to `"public" | "private" | false`. */
+function resolveMode(mode: FeatureMode | undefined, fallback: ResolvedMode): ResolvedMode {
+  if (mode === undefined) return fallback;
+  if (mode === false || mode === "false") return false;
+  return mode;
+}
+
+/**
+ * Resolve the two independent feature switches into their effective modes.
+ * `list` inherits `browser` when unset, and is forced off when `browser` is off
+ * (directory listing only makes sense when file serving is enabled).
+ */
+export function resolveBrowserFeatures(options: WedbavOptions): { browser: ResolvedMode; list: ResolvedMode } {
+  const browser = resolveMode(options.browser, "private");
+  const list = browser === false ? false : resolveMode(options.list, browser);
+  return { browser, list };
+}
+
 export function createHono(fs: FsSubset, options: WedbavOptions) {
   const app = new Hono<WedbavContext>();
+
+  const { browser: browserMode, list: listMode } = resolveBrowserFeatures(options);
+
+  const verifyCredentials = (username: string, password: string): boolean => {
+    if (typeof options.auth === "function") {
+      return options.auth(username, password);
+    }
+    if (!env.WEDBAV_USERNAME) {
+      if (!env.WEDBAV_PASSWORD) {
+        return true;
+      }
+      return password === env.WEDBAV_PASSWORD;
+    }
+    return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
+  };
 
   if (options.middleware) {
     app.use(options.middleware);
@@ -83,54 +139,22 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
-  const handleBrowserFeature = async (c: Context<WedbavContext>, renderList: boolean) => {
-    const { pathname } = c.var;
-
-    let filepath = pathname;
-
-    // we auto append index.html for requests that look like from browsers (based on Accept and User-Agent header)
-    // actually this logic is of no use, but just add it here
-    // anyway, we will fallback to the webdav /GET logic, if there is no handleBrowserFeature function
-    const requestHTML =
-      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
-    if (requestHTML) {
-      if (pathname === "/") filepath = "/index.html";
-      else if (pathname.endsWith("/")) filepath += "index.html";
-    }
-
-    let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
-    try {
-      stat = await fs.stat(filepath);
-    } catch (err) {
-      if (isErrnoException(err)) {
-        // index.html does not exist
-      } else throw err;
-    }
-
-    // when this is a directory
-    if (!stat?.isFile()) {
-      // do not render the directory listing HTML UI ("enabled" / "disabled" modes)
-      if (!renderList) {
-        return c.text("Not Found", 404);
+  // Enforce basic auth inline for a "private" feature. Returns a 401 Response
+  // when credentials are missing/invalid, or undefined when access is granted.
+  const enforceAuth = (c: Context<WedbavContext>): Response | undefined => {
+    const header = c.req.header("Authorization");
+    const [scheme, encoded] = header?.split(" ") ?? [];
+    if (scheme?.toLowerCase() === "basic" && encoded) {
+      const [username, ...rest] = Buffer.from(encoded, "base64").toString("utf-8").split(":");
+      if (verifyCredentials(username ?? "", rest.join(":"))) {
+        return undefined;
       }
-
-      // render an index/manager UI of the directory ("public" / "private" modes)
-      const files = await fs.readdir(pathname, { withFileTypes: true }).catch((e) => {
-        if (isErrnoException(e)) return false as const;
-        throw e;
-      });
-
-      const dir = removeSuffixSlash(pathname) || "/";
-
-      if (!files) {
-        // root always shows an empty listing even if the backing directory doesn't exist yet
-        if (pathname !== "/") return c.text("Not Found", 404);
-        return c.html(await renderManager(fs, pathname, dir, []));
-      }
-
-      return c.html(await renderManager(fs, pathname, dir, files));
     }
+    return c.body("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="wedbav"' });
+  };
 
+  // Serve a single file (with ETag / conditional-request handling).
+  const serveFile = async (c: Context<WedbavContext>, filepath: string, stat: Awaited<ReturnType<typeof fs.stat>>) => {
     const etag = (stat as VStats)[ETAG];
     if (etag) {
       c.header("etag", etag);
@@ -168,30 +192,90 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     }
   };
 
-  // browser feature, this part does not require auth ("public" / "enabled")
+  // Render the directory listing / manager UI.
+  const serveListing = async (c: Context<WedbavContext>) => {
+    const { pathname } = c.var;
+    const files = await fs.readdir(pathname, { withFileTypes: true }).catch((e) => {
+      if (isErrnoException(e)) return false as const;
+      throw e;
+    });
+
+    const dir = removeSuffixSlash(pathname) || "/";
+
+    if (!files) {
+      // root always shows an empty listing even if the backing directory doesn't exist yet
+      if (pathname !== "/") return c.text("Not Found", 404);
+      return c.html(await renderManager(fs, pathname, dir, []));
+    }
+
+    return c.html(await renderManager(fs, pathname, dir, files));
+  };
+
+  // Browser feature: serve files (governed by `browserMode`) and, for directories
+  // without an index.html, an optional listing UI (governed by `listMode`). File
+  // serving and listing carry independent auth requirements.
   app.get("/*", async (c, next) => {
-    const { browser = "private" } = options;
-    // "private"/"disabled" require auth: fall through to the auth middleware,
-    // so all GET file requests are protected.
-    if (browser === "private" || browser === "disabled") {
+    if (browserMode === false) {
+      // file serving disabled → fall through to WebDAV GET semantics.
       return next();
     }
 
-    // "public" renders the listing UI; "enabled" does not.
-    const renderList = browser === "public";
+    const { pathname } = c.var;
 
-    // Editor page: /path/to/file?edit (auth handled on save via PUT/MOVE)
-    if (renderList) {
-      const url = new URL(c.req.url);
-      if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
-        return c.html(renderEditor(c.var.pathname));
+    // Editor page: /path/to/file?edit — part of the management/listing surface.
+    // Only available when the listing feature is enabled, and guarded by its
+    // access level. When listing is disabled the `?edit` query is ignored and the
+    // request is served like a normal file request. Handled before stat so new
+    // (not-yet-existing) files can be created.
+    if (listMode !== false && c.var.url.searchParams.has("edit") && !pathname.endsWith("/")) {
+      if (listMode === "private") {
+        const unauthorized = enforceAuth(c);
+        if (unauthorized) return unauthorized;
       }
+      return c.html(renderEditor(pathname));
     }
 
-    return handleBrowserFeature(c, renderList);
+    // Auto-append index.html for browser-like requests.
+    let filepath = pathname;
+    const requestHTML =
+      c.req.header("accept")?.startsWith("text/html") || c.req.header("user-agent")?.startsWith("Mozilla/");
+    if (requestHTML) {
+      if (pathname === "/") filepath = "/index.html";
+      else if (pathname.endsWith("/")) filepath += "index.html";
+    }
+
+    let stat: Awaited<ReturnType<typeof fs.stat>> | undefined;
+    try {
+      stat = await fs.stat(filepath);
+    } catch (err) {
+      if (isErrnoException(err)) {
+        // index.html (or the file) does not exist
+      } else throw err;
+    }
+
+    // Directory (no matching file / index.html) → listing feature.
+    if (!stat?.isFile()) {
+      if (listMode === false) {
+        // listing disabled → directories without an index.html are Not Found.
+        return c.text("Not Found", 404);
+      }
+      if (listMode === "private") {
+        const unauthorized = enforceAuth(c);
+        if (unauthorized) return unauthorized;
+      }
+      return serveListing(c);
+    }
+
+    // File → file-serving feature.
+    if (browserMode === "private") {
+      const unauthorized = enforceAuth(c);
+      if (unauthorized) return unauthorized;
+    }
+
+    return serveFile(c, filepath, stat);
   });
 
-  // basic auth
+  // basic auth for all remaining (non-browser) requests, e.g. WebDAV methods.
   app.use(
     "/*",
     basicAuth({
@@ -204,39 +288,9 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           // we actually DO NOT use it
           Bindings: Bindings;
         }>,
-      ) => {
-        if (typeof options.auth === "function") {
-          return options.auth(username, password);
-        }
-        if (!env.WEDBAV_USERNAME) {
-          if (!env.WEDBAV_PASSWORD) {
-            return true;
-          }
-          return password === env.WEDBAV_PASSWORD;
-        }
-        return username === env.WEDBAV_USERNAME && password === env.WEDBAV_PASSWORD;
-      },
+      ) => verifyCredentials(username, password),
     }),
   );
-
-  // browser feature for authenticated modes ("private" / "disabled")
-  app.get("/*", async (c, next) => {
-    const { browser = "private" } = options;
-    if (browser === "private" || browser === "disabled") {
-      // "private" renders the listing UI; "disabled" does not.
-      const renderList = browser === "private";
-
-      // Editor page: /path/to/file?edit
-      if (renderList) {
-        const url = new URL(c.req.url);
-        if (url.searchParams.has("edit") && !c.var.pathname.endsWith("/")) {
-          return c.html(renderEditor(c.var.pathname));
-        }
-      }
-      return handleBrowserFeature(c, renderList);
-    }
-    return next();
-  });
 
   app.on("PROPFIND", "/*", async (c) => {
     const { pathname } = c.var;

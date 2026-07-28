@@ -23,7 +23,7 @@ function createFs() {
 async function createApp() {
   const fs = createFs();
   await fs.ready();
-  const app = createHono(fs, { browser: "disabled", auth: () => true });
+  const app = createHono(fs, { browser: false, auth: () => true });
   return { app, fs };
 }
 
@@ -411,7 +411,7 @@ describe("handleCopyMoveRequest (HTTP)", () => {
         throw new Error("db exploded");
       },
     });
-    const app = createHono(fs, { browser: "disabled", auth: () => true });
+    const app = createHono(fs, { browser: false, auth: () => true });
     const res = await app.request(davReq("COPY", "/src.txt", { Destination: "/dst.txt" }));
     assert.equal(res.status, 500);
   });
@@ -496,7 +496,7 @@ describe("handleCopyMoveRequest (HTTP)", () => {
         throw errno("EACCES", "copyfile", "/copy/bad.txt");
       },
     });
-    const app = createHono(fs, { browser: "disabled", auth: () => true });
+    const app = createHono(fs, { browser: false, auth: () => true });
     const res = await app.request(davReq("COPY", "/dir/", { Destination: "/copy/", Overwrite: "T" }));
     assert.equal(res.status, 207);
     assert.match(res.headers.get("Content-Type") ?? "", /application\/xml/);

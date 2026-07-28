@@ -80,7 +80,10 @@ import { createKyselyFs, createHono } from "wedbav";
 import { PostgresDialect } from "kysely";
 import { Pool } from "pg";
 
-const fs = createKyselyFs(new PostgresDialect({ pool: new Pool({ connectionString: "postgresql://user_here:password_here@host/db_name" }) }), { dbType: "pg" });
+const fs = createKyselyFs(
+  new PostgresDialect({ pool: new Pool({ connectionString: "postgresql://user_here:password_here@host/db_name" }) }),
+  { dbType: "pg" },
+);
 const webdavApp = createHono(fs, { browser: "public" });
 
 // Mount at a sub-path in your existing Hono app
@@ -90,11 +93,14 @@ app.route("/files", webdavApp);
 
 ### `WedbavOptions`
 
-| Option    | Type                                                         | Default             | Description                                                                                                                                           |
-| --------- | ------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `port`    | `number`                                                     | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                       |
-| `browser` | `"private" \| "public" \| "enabled" \| "disabled"`           | `"private"`         | `private` requires basic auth and renders the directory-listing UI; `public` is the same without auth; `enabled` is like `public` but does not render the listing UI (dirs without `index.html` return 404); `disabled` is like `private` but does not render the listing UI |
-| `auth`    | `(user: string, pass: string) => boolean`                    | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                               |
+| Option    | Type                                        | Default             | Description                                                                                                                                                                          |
+| --------- | ------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `port`    | `number`                                    | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                                                      |
+| `browser` | `"public" \| "private" \| "false" \| false` | `"private"`         | File-serving feature. `private` serves files behind basic auth; `public` serves them without auth; `false` disables it (requests fall through to WebDAV GET semantics).              |
+| `list`    | `"public" \| "private" \| "false" \| false` | inherits `browser`  | Directory auto-listing UI. Same access levels as `browser`, applied independently. Only takes effect when `browser` is enabled; when disabled, dirs without `index.html` return 404. |
+| `auth`    | `(user: string, pass: string) => boolean`   | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                                                              |
+
+`browser` and `list` carry **independent** auth requirements. For example, `{ browser: "public", list: "private" }` serves files to anyone but requires auth to view the directory listing.
 
 ## Self-hosted deployment
 
@@ -116,8 +122,7 @@ WEDBAV_CONNECTION_STRING=file:/path/to/database.db
 PORT=3000
 WEDBAV_USERNAME=admin
 WEDBAV_PASSWORD=secret
-WEDBAV_BROWSER=private     # private | public | enabled | disabled
+WEDBAV_BROWSER=private     # public | private | false  (file serving)
+WEDBAV_LIST=private        # public | private | false  (dir listing; defaults to WEDBAV_BROWSER)
 WEDBAV_TABLE=filesystem    # custom table name
 ```
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YieldRay/wedbav)

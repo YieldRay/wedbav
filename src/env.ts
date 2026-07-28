@@ -6,6 +6,7 @@ export type Bindings = {
   WEDBAV_PASSWORD?: string;
   PORT?: string;
   WEDBAV_BROWSER?: WedbavOptions["browser"];
+  WEDBAV_LIST?: WedbavOptions["list"];
   WEDBAV_TABLE?: string;
 
   WEDBAV_CONNECTION_STRING?: string;

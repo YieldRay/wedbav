@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createKyselyFs } from "./fs.ts";
 import { createTestDialect } from "./test-helpers.ts";
-import { createHono } from "./wedbav.ts";
+import { createHono, resolveBrowserFeatures, type WedbavOptions } from "./wedbav.ts";
 
 async function createApp() {
   const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
@@ -322,13 +322,13 @@ describe("WebDAV method semantics", () => {
     assert.equal(res.status, 201);
   });
 
-  it("GET on a directory in browser:disabled mode returns 404 (no listing UI)", async () => {
+  it("GET on a directory with listing disabled returns 404 (no listing UI)", async () => {
     // The default test app uses browser:"public", which renders directory HTML listings.
-    // "disabled" still serves files (behind auth) but never renders the listing UI,
-    // so a directory without an index.html returns 404.
+    // With list:false the browser still serves files (behind auth) but never renders
+    // the listing UI, so a directory without an index.html returns 404.
     const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
     await fs.ready();
-    const app = createHono(fs, { browser: "disabled", auth: () => true });
+    const app = createHono(fs, { browser: "private", list: false, auth: () => true });
     await fs.mkdir("/adir");
     const res = await app.request(req("GET", "/adir"));
     assert.equal(res.status, 404);
@@ -414,7 +414,7 @@ describe("authentication", () => {
     const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
     await fs.ready();
     // Only accept exactly user:pass
-    const app = createHono(fs, { browser: "disabled", auth: (u, p) => u === "user" && p === "pass" });
+    const app = createHono(fs, { browser: false, auth: (u, p) => u === "user" && p === "pass" });
     return { app, fs };
   }
 
@@ -525,5 +525,177 @@ describe("Chinese UTF-8 paths over HTTP", () => {
     assert.ok(body.includes('class="name-text">图片.png'), "listing should show decoded name");
     // href/link must be percent-encoded
     assert.ok(body.includes('href="./%E5%9B%BE%E7%89%87.png"'), `expected encoded href in:\n${body}`);
+  });
+});
+
+// ─── M. browser / list option resolution ────────────────────────────────────
+
+describe("resolveBrowserFeatures", () => {
+  const cases: [WedbavOptions, { browser: "public" | "private" | false; list: "public" | "private" | false }][] = [
+    // defaults: browser private, list inherits browser
+    [{}, { browser: "private", list: "private" }],
+    // browser public → list inherits public
+    [{ browser: "public" }, { browser: "public", list: "public" }],
+    // explicit list overrides the inherited value (independent auth)
+    [
+      { browser: "public", list: "private" },
+      { browser: "public", list: "private" },
+    ],
+    [
+      { browser: "private", list: "public" },
+      { browser: "private", list: "public" },
+    ],
+    // list disabled while browser enabled
+    [
+      { browser: "public", list: false },
+      { browser: "public", list: false },
+    ],
+    [
+      { browser: "private", list: "false" },
+      { browser: "private", list: false },
+    ],
+    // browser disabled forces list off, regardless of the list value
+    [{ browser: false }, { browser: false, list: false }],
+    [{ browser: "false" }, { browser: false, list: false }],
+    [
+      { browser: false, list: "public" },
+      { browser: false, list: false },
+    ],
+    // string "false" is treated the same as boolean false
+    [
+      { browser: "false", list: "false" },
+      { browser: false, list: false },
+    ],
+  ];
+  for (const [input, expected] of cases) {
+    it(`${JSON.stringify(input)} → ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(resolveBrowserFeatures(input), expected);
+    });
+  }
+});
+
+describe("browser & list options (HTTP)", () => {
+  async function appWith(options: Partial<WedbavOptions>) {
+    const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+    await fs.ready();
+    const app = createHono(fs, { auth: (u, p) => u === "user" && p === "pass", ...options });
+    return { app, fs };
+  }
+  const CREDS = `Basic ${btoa("user:pass")}`;
+  const html = { Accept: "text/html" };
+
+  it("browser:false falls through to WebDAV GET (directory download is 404)", async () => {
+    const { app, fs } = await appWith({ browser: false });
+    await fs.mkdir("/adir");
+    // No browser handler; WebDAV GET refuses to download a directory.
+    const res = await app.request(new Request("http://localhost/adir", { headers: { Authorization: CREDS } }));
+    assert.equal(res.status, 404);
+  });
+
+  it("browser:public serves a file without auth", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.writeFile("/pub.txt", "hi");
+    const res = await app.request(new Request("http://localhost/pub.txt"));
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "hi");
+  });
+
+  it("browser:private requires auth to read a file", async () => {
+    const { app, fs } = await appWith({ browser: "private" });
+    await fs.writeFile("/sec.txt", "secret");
+    const anon = await app.request(new Request("http://localhost/sec.txt"));
+    assert.equal(anon.status, 401);
+    const authed = await app.request(new Request("http://localhost/sec.txt", { headers: { Authorization: CREDS } }));
+    assert.equal(authed.status, 200);
+    assert.equal(await authed.text(), "secret");
+  });
+
+  it("list:false returns 404 for a directory even when browser serves files", async () => {
+    const { app, fs } = await appWith({ browser: "public", list: false });
+    await fs.mkdir("/adir");
+    await fs.writeFile("/adir/file.txt", "x");
+    // The directory itself has no listing → 404 …
+    assert.equal((await app.request(new Request("http://localhost/adir/", { headers: html }))).status, 404);
+    // … but files inside are still served publicly.
+    assert.equal((await app.request(new Request("http://localhost/adir/file.txt"))).status, 200);
+  });
+
+  it("independent auth: public files but private listing", async () => {
+    const { app, fs } = await appWith({ browser: "public", list: "private" });
+    await fs.writeFile("/dir/f.txt", "data");
+    // File is public …
+    assert.equal((await app.request(new Request("http://localhost/dir/f.txt"))).status, 200);
+    // … but listing the directory requires auth.
+    const anonList = await app.request(new Request("http://localhost/dir/", { headers: html }));
+    assert.equal(anonList.status, 401);
+    const authedList = await app.request(
+      new Request("http://localhost/dir/", { headers: { ...html, Authorization: CREDS } }),
+    );
+    assert.equal(authedList.status, 200);
+  });
+
+  it("independent auth: private files but public listing", async () => {
+    const { app, fs } = await appWith({ browser: "private", list: "public" });
+    await fs.writeFile("/dir/f.txt", "data");
+    // Listing is public …
+    const list = await app.request(new Request("http://localhost/dir/", { headers: html }));
+    assert.equal(list.status, 200);
+    // … but reading a file requires auth.
+    assert.equal((await app.request(new Request("http://localhost/dir/f.txt"))).status, 401);
+    const authedFile = await app.request(
+      new Request("http://localhost/dir/f.txt", { headers: { Authorization: CREDS } }),
+    );
+    assert.equal(authedFile.status, 200);
+  });
+
+  it("list inherits browser when unset (private/private)", async () => {
+    const { app, fs } = await appWith({ browser: "private" });
+    await fs.mkdir("/adir");
+    // listing inherits private → anonymous is rejected
+    const anon = await app.request(new Request("http://localhost/adir/", { headers: html }));
+    assert.equal(anon.status, 401);
+    const authed = await app.request(
+      new Request("http://localhost/adir/", { headers: { ...html, Authorization: CREDS } }),
+    );
+    assert.equal(authed.status, 200);
+  });
+
+  it("editor page (?edit) follows the list auth level, not browser", async () => {
+    // list:private → editor requires auth even when files are served publicly.
+    const priv = await appWith({ browser: "public", list: "private" });
+    const anon = await priv.app.request(new Request("http://localhost/new.txt?edit", { headers: html }));
+    assert.equal(anon.status, 401);
+    const authed = await priv.app.request(
+      new Request("http://localhost/new.txt?edit", { headers: { ...html, Authorization: CREDS } }),
+    );
+    assert.equal(authed.status, 200);
+
+    // list:public → editor is public even when files are behind auth.
+    const pub = await appWith({ browser: "private", list: "public" });
+    const pubRes = await pub.app.request(new Request("http://localhost/new.txt?edit", { headers: html }));
+    assert.equal(pubRes.status, 200);
+  });
+
+  it("?edit is ignored when the listing feature is disabled", async () => {
+    const { app, fs } = await appWith({ browser: "public", list: false });
+    await fs.writeFile("/exists.txt", "content");
+    // ?edit on a missing file must NOT show the editor; it falls through to a
+    // normal (missing) file request → 404.
+    const missing = await app.request(new Request("http://localhost/new.txt?edit", { headers: html }));
+    assert.equal(missing.status, 404);
+    // ?edit on an existing file serves the raw file, not the editor UI.
+    const existing = await app.request(new Request("http://localhost/exists.txt?edit", { headers: html }));
+    assert.equal(existing.status, 200);
+    assert.equal(await existing.text(), "content");
+  });
+
+  it("?edit does not leak the editor UI when listing requires auth (regression)", async () => {
+    // The bug: browser:public made ?edit render for anyone. It must now be gated
+    // by the (private) listing feature.
+    const { app } = await appWith({ browser: "public", list: "private" });
+    const res = await app.request(new Request("http://localhost/secret.txt?edit", { headers: html }));
+    assert.equal(res.status, 401);
+    const body = await res.text();
+    assert.ok(!body.includes("CodeMirror") && !/editor/i.test(body), "editor HTML must not be served to anon");
   });
 });
