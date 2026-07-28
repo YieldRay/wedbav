@@ -4,8 +4,9 @@ import { escapeXML } from "./xml.ts";
 /**
  * Renders the full HTML page for the file editor.
  * @param pathname - The full path of the file being edited (e.g. "/docs/notes.txt")
+ * @param editQuery - The query-string key that activates the editor (default "edit")
  */
-export function renderEditor(pathname: string): string {
+export function renderEditor(pathname: string, editQuery = "edit"): string {
   // Extract the filename (basename) and parent directory
   const segments = pathname.split("/").filter(Boolean);
   const filename = segments.pop() || "";
@@ -15,6 +16,7 @@ export function renderEditor(pathname: string): string {
   const pathnameJson = JSON.stringify(pathname);
   const parentDirJson = JSON.stringify(encodePath(parentDir));
   const filenameJson = JSON.stringify(filename);
+  const editQueryJson = JSON.stringify(encodeURIComponent(editQuery));
 
   return `<!doctype html>
 <html lang="en">
@@ -138,6 +140,7 @@ export function renderEditor(pathname: string): string {
       let PATHNAME = ${pathnameJson};
       const PARENT_DIR = ${parentDirJson};
       let ORIGINAL_FILENAME = ${filenameJson};
+      const EDIT_QUERY = ${editQueryJson};
 
       let view;
 
@@ -233,7 +236,7 @@ export function renderEditor(pathname: string): string {
             currentPath = newPath;
             PATHNAME = newPath;
             ORIGINAL_FILENAME = newName;
-            history.replaceState(null, "", currentPath + "?edit");
+            history.replaceState(null, "", currentPath + "?" + EDIT_QUERY);
           }
 
           // Save content

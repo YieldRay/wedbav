@@ -42,31 +42,40 @@ const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" heigh
 const ICON_PENCIL = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
-function buildRow(entry: EntryInfo, pathname: string): string {
+function buildRow(entry: EntryInfo, pathname: string, editQuery: string): string {
   const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
+  // Clicking a directory keeps you inside the manager (past any index.html).
+  const rowHref = entry.isDir ? escapeXML(`${href}?${encodeURIComponent(editQuery)}`) : href;
   const escapedName = escapeXML(entry.name);
   // data-path must be URL-encoded: fetch() treats # as fragment and ? as query if unencoded
   const encodedPath = escapeXML(encodePath(pathname) + encodeURIComponent(entry.name) + (entry.isDir ? "/" : ""));
+  const editHref = escapeXML(`${href}?${encodeURIComponent(editQuery)}`);
   const formattedDate = formatDate(entry.mtime);
   const formattedSize = entry.isDir ? "" : formatSize(entry.size);
   const displayName = escapedName + (entry.isDir ? "/" : "");
 
   return `<li class="file-row">
-      <a class="row-link" href="${href}" aria-label="${escapedName}"></a>
+      <a class="row-link" href="${rowHref}" aria-label="${escapedName}"></a>
       <span class="row-inner">
         <span class="name">${entry.isDir ? ICON_FOLDER : ICON_FILE}<span class="name-inner"><span class="name-text">${displayName}</span><span class="meta-sub">${formattedDate}${entry.isDir ? "" : `<span class="meta-sub-sep">·</span><span class="meta-sub-size">${formattedSize}</span>`}</span></span></span>
         <span class="meta-size">${formattedSize}</span>
         <span class="meta-date">${formattedDate}</span>
         <span class="actions">
           ${entry.isDir ? `<span class="btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
-          ${entry.isDir ? `<button class="rename-btn" data-path="${encodedPath}" data-isdir="1" title="Rename">${ICON_PENCIL}</button>` : `<a class="rename-btn" href="${href}?edit" title="Edit">${ICON_PENCIL}</a>`}
+          ${entry.isDir ? `<button class="rename-btn" data-path="${encodedPath}" data-isdir="1" title="Rename">${ICON_PENCIL}</button>` : `<a class="rename-btn" href="${editHref}" title="Edit">${ICON_PENCIL}</a>`}
           <button class="delete-btn" data-path="${encodedPath}" title="Delete">${ICON_TRASH}</button>
         </span>
       </span>
     </li>`;
 }
 
-export async function renderManager(fs: FsSubset, pathname: string, dir: string, files: Dirent[]): Promise<string> {
+export async function renderManager(
+  fs: FsSubset,
+  pathname: string,
+  dir: string,
+  files: Dirent[],
+  editQuery = "edit",
+): Promise<string> {
   const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
 
   const entries: EntryInfo[] = await Promise.all(
@@ -90,11 +99,12 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
     return a.name.localeCompare(b.name);
   });
 
-  const rows = entries.map((e) => buildRow(e, normalizedPathname)).join("\n");
+  const rows = entries.map((e) => buildRow(e, normalizedPathname, editQuery)).join("\n");
+  const parentHref = escapeXML(`../?${encodeURIComponent(editQuery)}`);
   const parentRow =
     normalizedPathname !== "/"
       ? `<li class="file-row parent-row">
-      <a class="row-link" href="../" aria-label="Parent directory"></a>
+      <a class="row-link" href="${parentHref}" aria-label="Parent directory"></a>
       <span class="row-inner">
         <span class="name">${ICON_UP}<span class="name-inner"><span class="name-text">../</span></span></span>
         <span class="meta-size"></span>
@@ -109,6 +119,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
       : "";
   const breadcrumb = buildBreadcrumb(normalizedPathname);
   const pathnameJson = JSON.stringify(encodePath(normalizedPathname));
+  const editQueryJson = JSON.stringify(encodeURIComponent(editQuery));
 
   return `<!doctype html>
 <html lang="en">
@@ -256,6 +267,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
 
     <script>
       const PATHNAME = ${pathnameJson};
+      const EDIT_QUERY = ${editQueryJson};
 
       function lastName(path) {
         const seg = path.split("/").filter(Boolean).pop() || path;
@@ -343,7 +355,7 @@ export async function renderManager(fs: FsSubset, pathname: string, dir: string,
         const name = document.getElementById("mkfile-name").value.trim();
         if (!name) return;
         const filePath = PATHNAME + encodeURIComponent(name);
-        window.location.href = filePath + "?edit";
+        window.location.href = filePath + "?" + EDIT_QUERY;
       }
       document.getElementById("mkfile-btn").addEventListener("click", createFile);
       document.getElementById("mkfile-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createFile(); });

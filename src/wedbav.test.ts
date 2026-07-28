@@ -725,3 +725,115 @@ describe("browser & list options (HTTP)", () => {
     assert.ok(!body.includes("CodeMirror") && !/editor/i.test(body), "editor HTML must not be served to anon");
   });
 });
+
+// ─── N. ?edit on directories + custom editQuery ─────────────────────────────
+
+describe("directory management via ?edit", () => {
+  async function appWith(options: Partial<WedbavOptions>) {
+    const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+    await fs.ready();
+    const app = createHono(fs, { auth: () => true, ...options });
+    return { app, fs };
+  }
+  const html = { Accept: "text/html" };
+  const isListing = (body: string) => body.includes('id="file-list"');
+  const isEditor = (body: string) => body.includes('id="editor-container"');
+
+  it("normally serves index.html for a directory (no way to manage)", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.writeFile("/site/index.html", "<h1>home</h1>");
+    const res = await app.request(new Request("http://localhost/site/", { headers: html }));
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "<h1>home</h1>");
+  });
+
+  it("?edit on a directory forces the listing UI even when index.html exists", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.writeFile("/site/index.html", "<h1>home</h1>");
+    await fs.writeFile("/site/data.txt", "x");
+    const res = await app.request(new Request("http://localhost/site/?edit", { headers: html }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(isListing(body), "expected the manager/listing UI, not index.html");
+    assert.ok(!body.includes("<h1>home</h1>"), "index.html must not be served");
+  });
+
+  it("?edit on a directory without a trailing slash redirects to the slash form", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.writeFile("/site/index.html", "home");
+    const res = await app.request(new Request("http://localhost/site?edit", { headers: html, redirect: "manual" }));
+    assert.equal(res.status, 308);
+    assert.equal(res.headers.get("location"), "/site/?edit");
+  });
+
+  it("?edit still opens the editor for a file (not the listing)", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.writeFile("/notes.txt", "hi");
+    const res = await app.request(new Request("http://localhost/notes.txt?edit", { headers: html }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(isEditor(body), "expected the editor UI for a file");
+  });
+
+  it("?edit on a directory is guarded by the list auth level", async () => {
+    const { app, fs } = await appWith({ browser: "public", list: "private", auth: (u, p) => u === "a" && p === "b" });
+    await fs.writeFile("/site/index.html", "home");
+    const anon = await app.request(new Request("http://localhost/site/?edit", { headers: html }));
+    assert.equal(anon.status, 401);
+    const authed = await app.request(
+      new Request("http://localhost/site/?edit", { headers: { ...html, Authorization: `Basic ${btoa("a:b")}` } }),
+    );
+    assert.equal(authed.status, 200);
+    assert.ok(isListing(await authed.text()));
+  });
+
+  it("a custom editQuery activates the management UI (and default ?edit does not)", async () => {
+    const { app, fs } = await appWith({ browser: "public", editQuery: "wedbav-edit" });
+    await fs.writeFile("/site/index.html", "<h1>home</h1>");
+
+    // The custom query forces the listing.
+    const custom = await app.request(new Request("http://localhost/site/?wedbav-edit", { headers: html }));
+    assert.equal(custom.status, 200);
+    assert.ok(isListing(await custom.text()), "custom editQuery should force the listing");
+
+    // The default ?edit is now just a normal query param → index.html is served.
+    const stale = await app.request(new Request("http://localhost/site/?edit", { headers: html }));
+    assert.equal(stale.status, 200);
+    assert.equal(await stale.text(), "<h1>home</h1>", "default ?edit must be ignored when editQuery is customized");
+  });
+
+  it("custom editQuery opens the file editor and is reflected in the page", async () => {
+    const { app, fs } = await appWith({ browser: "public", editQuery: "manage" });
+    await fs.writeFile("/notes.txt", "hi");
+    const res = await app.request(new Request("http://localhost/notes.txt?manage", { headers: html }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(isEditor(body), "expected the editor UI");
+    // The editor's client script must use the custom query when rewriting history.
+    assert.ok(body.includes('"manage"'), "editor should embed the custom edit query");
+  });
+
+  it("directory rows link with ?edit and keep an (invisible) placeholder in the download slot", async () => {
+    const { app, fs } = await appWith({ browser: "public" });
+    await fs.mkdir("/sub");
+    await fs.writeFile("/file.txt", "x");
+    const res = await app.request(new Request("http://localhost/?edit", { headers: html }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    // Directory row-link navigates INTO the folder while staying in the manager.
+    assert.ok(body.includes('href="./sub/?edit"'), `expected dir row-link to carry ?edit in:\n${body}`);
+    // The download slot for a directory stays a placeholder (no download for dirs),
+    // preserving row alignment — it must not become a real download/manage link.
+    assert.ok(body.includes('class="btn-placeholder"'), "directory download slot must remain a placeholder");
+    // Files still link directly to themselves (no ?edit on the row-link).
+    assert.ok(body.includes('href="./file.txt"'), "file row-link should point to the file itself");
+  });
+
+  it("directory row-link uses the custom editQuery", async () => {
+    const { app, fs } = await appWith({ browser: "public", editQuery: "manage" });
+    await fs.mkdir("/sub");
+    const res = await app.request(new Request("http://localhost/?manage", { headers: html }));
+    const body = await res.text();
+    assert.ok(body.includes('href="./sub/?manage"'), `expected dir row-link to use ?manage in:\n${body}`);
+  });
+});

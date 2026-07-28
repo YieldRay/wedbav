@@ -52,6 +52,18 @@ export interface WedbavOptions {
    * @default inherits `browser`
    */
   list?: FeatureMode | undefined;
+  /**
+   * The query-string key that activates the management UI (part of the `list`
+   * feature):
+   * - On a file, `?<editQuery>` opens the in-browser editor.
+   * - On a directory, `?<editQuery>` forces the directory listing/manager UI even
+   *   when the directory contains an index.html (so files can still be managed).
+   *
+   * Customize this when your own app already uses `?edit` and you need to avoid a
+   * conflict, e.g. `editQuery: "wedbav-edit"`.
+   * @default {"edit"}
+   */
+  editQuery?: string | undefined;
   port?: number | undefined;
   middleware?: MiddlewareHandler;
 }
@@ -91,6 +103,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   const app = new Hono<WedbavContext>();
 
   const { browser: browserMode, list: listMode } = resolveBrowserFeatures(options);
+  const editQuery = options.editQuery || "edit";
 
   const verifyCredentials = (username: string, password: string): boolean => {
     if (typeof options.auth === "function") {
@@ -212,10 +225,10 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     if (!files) {
       // root always shows an empty listing even if the backing directory doesn't exist yet
       if (pathname !== "/") return c.text("Not Found", 404);
-      return c.html(await renderManager(fs, pathname, dir, []));
+      return c.html(await renderManager(fs, pathname, dir, [], editQuery));
     }
 
-    return c.html(await renderManager(fs, pathname, dir, files));
+    return c.html(await renderManager(fs, pathname, dir, files, editQuery));
   };
 
   // Browser feature: serve files (governed by `browserMode`) and, for directories
@@ -229,17 +242,35 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     const { pathname } = c.var;
 
-    // Editor page: /path/to/file?edit — part of the management/listing surface.
-    // Only available when the listing feature is enabled, and guarded by its
-    // access level. When listing is disabled the `?edit` query is ignored and the
-    // request is served like a normal file request. Handled before stat so new
-    // (not-yet-existing) files can be created.
-    if (listMode !== false && c.var.url.searchParams.has("edit") && !pathname.endsWith("/")) {
+    // Management UI (`?<editQuery>`): the editor on a file, or the listing/manager
+    // on a directory (even when it has an index.html). Part of the `list` feature.
+    if (listMode !== false && c.var.url.searchParams.has(editQuery)) {
       if (listMode === "private") {
         const unauthorized = enforceAuth(c);
         if (unauthorized) return unauthorized;
       }
-      return c.html(renderEditor(pathname));
+
+      const hasTrailingSlash = pathname.endsWith("/");
+      let isDir = hasTrailingSlash;
+      if (!isDir) {
+        try {
+          isDir = (await fs.stat(pathname)).isDirectory();
+        } catch (err) {
+          if (!isErrnoException(err)) throw err;
+        }
+      }
+
+      if (isDir) {
+        // Trailing slash keeps the listing's relative links resolvable.
+        if (!hasTrailingSlash) {
+          const redirect = new URL(c.req.url);
+          redirect.pathname = `${redirect.pathname}/`;
+          return c.redirect(redirect.pathname + redirect.search, 308);
+        }
+        return serveListing(c);
+      }
+
+      return c.html(renderEditor(pathname, editQuery));
     }
 
     // Auto-append index.html for browser-like requests.

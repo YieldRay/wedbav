@@ -98,9 +98,12 @@ app.route("/files", webdavApp);
 | `port`    | `number`                                    | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                                                      |
 | `browser` | `"public" \| "private" \| "false" \| false` | `"private"`         | File-serving feature. `private` serves files behind basic auth; `public` serves them without auth; `false` disables it (requests fall through to WebDAV GET semantics).              |
 | `list`    | `"public" \| "private" \| "false" \| false` | inherits `browser`  | Directory auto-listing UI. Same access levels as `browser`, applied independently. Only takes effect when `browser` is enabled; when disabled, dirs without `index.html` return 404. |
+| `editQuery` | `string`                                  | `"edit"`            | Query key that activates the management UI: `?<editQuery>` opens the editor on a file, or forces the directory listing/manager on a directory (even when it has an `index.html`). Change it if your app already uses `?edit`. |
 | `auth`    | `(user: string, pass: string) => boolean`   | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                                                              |
 
 `browser` and `list` carry **independent** auth requirements. For example, `{ browser: "public", list: "private" }` serves files to anyone but requires auth to view the directory listing.
+
+The management UI is reached via the `editQuery` (default `?edit`): on a file it opens the editor, and on a directory it forces the listing/manager page — useful for managing files in a directory that has an `index.html`. Since it is part of the `list` feature, it is disabled when `list` is `false` and follows `list`'s auth level.
 
 ## Self-hosted deployment
 
