@@ -4,9 +4,10 @@ import { escapeXML } from "./xml.ts";
 /**
  * Renders the full HTML page for the file editor.
  * @param pathname - The full path of the file being edited (e.g. "/docs/notes.txt")
- * @param editQuery - The query-string key that activates the editor (default "edit")
+ * @param actionQuery - The query-string key that activates actions (default "action");
+ *   the editor is reached via `?<actionQuery>=edit`.
  */
-export function renderEditor(pathname: string, editQuery = "edit"): string {
+export function renderEditor(pathname: string, actionQuery = "action"): string {
   // Extract the filename (basename) and parent directory
   const segments = pathname.split("/").filter(Boolean);
   const filename = segments.pop() || "";
@@ -16,7 +17,7 @@ export function renderEditor(pathname: string, editQuery = "edit"): string {
   const pathnameJson = JSON.stringify(pathname);
   const parentDirJson = JSON.stringify(encodePath(parentDir));
   const filenameJson = JSON.stringify(filename);
-  const editQueryJson = JSON.stringify(encodeURIComponent(editQuery));
+  const actionQueryJson = JSON.stringify(encodeURIComponent(actionQuery));
 
   return `<!doctype html>
 <html lang="en">
@@ -140,7 +141,7 @@ export function renderEditor(pathname: string, editQuery = "edit"): string {
       let PATHNAME = ${pathnameJson};
       const PARENT_DIR = ${parentDirJson};
       let ORIGINAL_FILENAME = ${filenameJson};
-      const EDIT_QUERY = ${editQueryJson};
+      const ACTION_QUERY = ${actionQueryJson};
 
       let view;
 
@@ -236,7 +237,7 @@ export function renderEditor(pathname: string, editQuery = "edit"): string {
             currentPath = newPath;
             PATHNAME = newPath;
             ORIGINAL_FILENAME = newName;
-            history.replaceState(null, "", currentPath + "?" + EDIT_QUERY);
+            history.replaceState(null, "", currentPath + "?" + ACTION_QUERY + "=edit");
           }
 
           // Save content

@@ -42,15 +42,24 @@ export function normalizePathLike(pathLike: PathLike): string {
   return path.normalize(pathStr);
 }
 
-// special character \%_ that need to be escaped in SQL LIKE queries
+// Backslash, percent and underscore all need escaping in SQL LIKE patterns.
+// The backslash itself must be escaped first so it doesn't consume the escape
+// added for a following wildcard.
 // biome-ignore lint/complexity/useRegexLiterals: String.raw here improves readability
-const sqlWildcardChars = new RegExp(String.raw`[\%_]`, "g");
+const sqlWildcardChars = new RegExp(String.raw`[\\%_]`, "g");
 
-/** Escape % and _ for usage in SQL LIKE expressions. */
+/**
+ * Escape `\`, `%` and `_` for use in a SQL `LIKE` pattern. Each is prefixed with
+ * a single backslash — the queries that use these patterns MUST specify
+ * `ESCAPE '\'` (see {@link LIKE_ESCAPE}) so the backslash is treated as the
+ * escape character rather than a literal.
+ */
 export function encodePathForSQL(key: string) {
-  // append '\\' before each wildcard character
-  return key.replace(sqlWildcardChars, String.raw`\\$&`);
+  return key.replace(sqlWildcardChars, (ch) => `\\${ch}`);
 }
+
+/** The escape character used with {@link encodePathForSQL} patterns. */
+export const LIKE_ESCAPE = "\\";
 
 export function getPathnameFromURL(url: string | URL) {
   return decodeURISafe(new URL(url).pathname);

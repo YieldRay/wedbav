@@ -19,6 +19,7 @@ import {
   removeSuffixSlash,
 } from "./utils.ts";
 import { davXML } from "./xml.ts";
+import { handleZipDownload, handleZipUpload } from "./zip.ts";
 
 /**
  * A feature access level:
@@ -53,17 +54,20 @@ export interface WedbavOptions {
    */
   list?: FeatureMode | undefined;
   /**
-   * The query-string key that activates the management UI (part of the `list`
-   * feature):
-   * - On a file, `?<editQuery>` opens the in-browser editor.
-   * - On a directory, `?<editQuery>` forces the directory listing/manager UI even
-   *   when the directory contains an index.html (so files can still be managed).
+   * The query-string key that activates a wedbav action (part of the `list`
+   * feature). Actions are triggered by `?<actionQuery>=<verb>`:
+   * - `?<actionQuery>=edit` — on a file opens the in-browser editor; on a
+   *   directory forces the listing/manager UI even when it contains an index.html.
+   * - `?<actionQuery>=download` — on a file forces an attachment download; on a
+   *   directory streams the whole tree as a zip.
+   * - `?<actionQuery>=extract` (PUT only) — unzips the request body into the
+   *   target directory.
    *
-   * Customize this when your own app already uses `?edit` and you need to avoid a
-   * conflict, e.g. `editQuery: "wedbav-edit"`.
-   * @default {"edit"}
+   * Customize this when your own app already uses `?action` and you need to avoid
+   * a conflict, e.g. `actionQuery: "wedbav-action"`.
+   * @default {"action"}
    */
-  editQuery?: string | undefined;
+  actionQuery?: string | undefined;
   port?: number | undefined;
   middleware?: MiddlewareHandler;
 }
@@ -103,7 +107,10 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   const app = new Hono<WedbavContext>();
 
   const { browser: browserMode, list: listMode } = resolveBrowserFeatures(options);
-  const editQuery = options.editQuery || "edit";
+  const actionQuery = options.actionQuery || "action";
+  // Read the requested action verb, e.g. `?action=edit`. Empty string when absent.
+  const getAction = (c: Context<WedbavContext>): string =>
+    (listMode !== false && c.var.url.searchParams.get(actionQuery)) || "";
 
   const verifyCredentials = (username: string, password: string): boolean => {
     if (typeof options.auth === "function") {
@@ -225,10 +232,28 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     if (!files) {
       // root always shows an empty listing even if the backing directory doesn't exist yet
       if (pathname !== "/") return c.text("Not Found", 404);
-      return c.html(await renderManager(fs, pathname, dir, [], editQuery));
+      return c.html(await renderManager(fs, pathname, dir, [], actionQuery));
     }
 
-    return c.html(await renderManager(fs, pathname, dir, files, editQuery));
+    return c.html(await renderManager(fs, pathname, dir, files, actionQuery));
+  };
+
+  // Serve a single file as a forced download (Content-Disposition: attachment).
+  const serveAttachment = async (c: Context<WedbavContext>, pathname: string) => {
+    const name = pathname.split("/").pop() || "download";
+    try {
+      const stat = await fs.stat(pathname);
+      if (stat.isDirectory()) return c.text("Not Found", 404);
+      const { body } = await readBufferOrStream(fs, pathname, stat);
+      return c.body(convertToWebStream(body), 200, {
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        "Content-Length": stat.size.toString(),
+        "Content-Type": "application/octet-stream",
+      });
+    } catch (e) {
+      if (isErrnoException(e)) return c.text("Not Found", 404);
+      throw e;
+    }
   };
 
   // Browser feature: serve files (governed by `browserMode`) and, for directories
@@ -242,9 +267,10 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     const { pathname } = c.var;
 
-    // Management UI (`?<editQuery>`): the editor on a file, or the listing/manager
-    // on a directory (even when it has an index.html). Part of the `list` feature.
-    if (listMode !== false && c.var.url.searchParams.has(editQuery)) {
+    // Actions (`?<actionQuery>=<verb>`) are part of the `list` feature and are
+    // guarded by its auth level. Supported verbs: `edit`, `download`.
+    const action = getAction(c);
+    if (action === "edit" || action === "download") {
       if (listMode === "private") {
         const unauthorized = enforceAuth(c);
         if (unauthorized) return unauthorized;
@@ -267,10 +293,13 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
           redirect.pathname = `${redirect.pathname}/`;
           return c.redirect(redirect.pathname + redirect.search, 308);
         }
-        return serveListing(c);
+        // `download` zips the whole tree; `edit` opens the listing/manager.
+        return action === "download" ? handleZipDownload(c, fs, pathname) : serveListing(c);
       }
 
-      return c.html(renderEditor(pathname, editQuery));
+      // File: `download` forces an attachment; `edit` opens the editor.
+      if (action === "download") return serveAttachment(c, pathname);
+      return c.html(renderEditor(pathname, actionQuery));
     }
 
     // Auto-append index.html for browser-like requests.
@@ -384,32 +413,14 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return c.body(null, 204);
   });
 
-  app.get("/*", async (c) => {
-    const { pathname } = c.var;
-
-    const name = pathname.split("/").pop()!;
-
-    try {
-      const stat = await fs.stat(pathname);
-      if (stat.isDirectory()) {
-        return c.text("Not Found", 404);
-      }
-      const { body } = await readBufferOrStream(fs, pathname, stat);
-      return c.body(convertToWebStream(body), 200, {
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
-        "Content-Length": stat.size.toString(),
-        "Content-Type": "application/octet-stream",
-      });
-    } catch (e) {
-      if (isErrnoException(e)) {
-        return c.text("Not Found", 404);
-      }
-      throw e;
-    }
-  });
+  app.get("/*", (c) => serveAttachment(c, c.var.pathname));
 
   app.put("/*", async (c) => {
     const { pathname } = c.var;
+    // Zip extraction (`?<actionQuery>=extract`): unzip the body into this dir.
+    if (c.var.url.searchParams.get(actionQuery) === "extract") {
+      return handleZipUpload(c, fs, pathname);
+    }
     const body = await c.req.arrayBuffer();
     await fs.writeFile(pathname, Buffer.from(body));
     return c.body("Created", 201);

@@ -3,6 +3,20 @@ import type { Dirent, PathLike, Stats } from "node:fs";
 import type { Readable } from "node:stream";
 import type { FilesystemTable } from "./fs.ts";
 
+/**
+ * A single entry within a directory, used by the batch helpers
+ * {@link FsSubset._readDirMany} and {@link FsSubset._writeDirMany}.
+ *
+ * - `name` is relative to the directory (may contain `/` for nested entries).
+ * - `isDirectory` marks the entry as a directory; directories carry no content.
+ * - `content` is the file body (defaults to empty when omitted on write).
+ */
+export interface DirEntry {
+  name: string;
+  isDirectory?: boolean;
+  content?: Uint8Array;
+}
+
 export interface FsSubset {
   access(path: PathLike): Promise<void>;
   stat(path: PathLike): Promise<Stats>;
@@ -29,6 +43,21 @@ export interface FsSubset {
   writeFile(file: PathLike, data: string | Uint8Array): Promise<void>;
   readFile(path: PathLike): Promise<Buffer>;
   createReadStream(path: PathLike): Readable;
+  /**
+   * Recursively read every entry under `dir` in a single query.
+   * Returns one {@link DirEntry} per file and directory, with `name` relative to
+   * `dir` (nested entries include `/`). Files carry `content`; directories carry
+   * `isDirectory: true` and no content.
+   * Throws `ENOTDIR`/`ENOENT` when `dir` is not an existing directory.
+   */
+  _readDirMany?(dir: PathLike): Promise<DirEntry[]>;
+  /**
+   * Write many entries into `dir` in a single transaction/query.
+   * Each entry is written at `dir + entry.name`; `isDirectory` entries create a
+   * directory row, others write `content` (empty when omitted).
+   * Throws `EISDIR` when a file target collides with an existing directory.
+   */
+  _writeDirMany?(dir: PathLike, entries: DirEntry[]): Promise<void>;
 }
 
 export class VFSError extends Error implements NodeJS.ErrnoException {

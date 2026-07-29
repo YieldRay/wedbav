@@ -41,15 +41,19 @@ const ICON_UP = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em
 const ICON_DOWNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`;
 const ICON_PENCIL = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>`;
 
-function buildRow(entry: EntryInfo, pathname: string, editQuery: string): string {
+function buildRow(entry: EntryInfo, pathname: string, actionQuery: string): string {
+  const q = encodeURIComponent(actionQuery);
   const href = `./${encodeURIComponent(entry.name)}${entry.isDir ? "/" : ""}`;
   // Clicking a directory keeps you inside the manager (past any index.html).
-  const rowHref = entry.isDir ? escapeXML(`${href}?${encodeURIComponent(editQuery)}`) : href;
+  const rowHref = entry.isDir ? escapeXML(`${href}?${q}=edit`) : href;
   const escapedName = escapeXML(entry.name);
   // data-path must be URL-encoded: fetch() treats # as fragment and ? as query if unencoded
   const encodedPath = escapeXML(encodePath(pathname) + encodeURIComponent(entry.name) + (entry.isDir ? "/" : ""));
-  const editHref = escapeXML(`${href}?${encodeURIComponent(editQuery)}`);
+  const editHref = escapeXML(`${href}?${q}=edit`);
+  // A directory downloads as a zip via `?<actionQuery>=download` (URL-navigable).
+  const downloadHref = escapeXML(`${href}?${q}=download`);
   const formattedDate = formatDate(entry.mtime);
   const formattedSize = entry.isDir ? "" : formatSize(entry.size);
   const displayName = escapedName + (entry.isDir ? "/" : "");
@@ -61,7 +65,7 @@ function buildRow(entry: EntryInfo, pathname: string, editQuery: string): string
         <span class="meta-size">${formattedSize}</span>
         <span class="meta-date">${formattedDate}</span>
         <span class="actions">
-          ${entry.isDir ? `<span class="btn-placeholder" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
+          ${entry.isDir ? `<a class="download-btn" href="${downloadHref}" title="Download as ZIP">${ICON_DOWNLOAD}</a>` : `<a class="download-btn" href="${href}" download title="Download">${ICON_DOWNLOAD}</a>`}
           ${entry.isDir ? `<button class="rename-btn" data-path="${encodedPath}" data-isdir="1" title="Rename">${ICON_PENCIL}</button>` : `<a class="rename-btn" href="${editHref}" title="Edit">${ICON_PENCIL}</a>`}
           <button class="delete-btn" data-path="${encodedPath}" title="Delete">${ICON_TRASH}</button>
         </span>
@@ -74,7 +78,7 @@ export async function renderManager(
   pathname: string,
   dir: string,
   files: Dirent[],
-  editQuery = "edit",
+  actionQuery = "action",
 ): Promise<string> {
   const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
 
@@ -99,8 +103,8 @@ export async function renderManager(
     return a.name.localeCompare(b.name);
   });
 
-  const rows = entries.map((e) => buildRow(e, normalizedPathname, editQuery)).join("\n");
-  const parentHref = escapeXML(`../?${encodeURIComponent(editQuery)}`);
+  const rows = entries.map((e) => buildRow(e, normalizedPathname, actionQuery)).join("\n");
+  const parentHref = escapeXML(`../?${encodeURIComponent(actionQuery)}=edit`);
   const parentRow =
     normalizedPathname !== "/"
       ? `<li class="file-row parent-row">
@@ -119,7 +123,7 @@ export async function renderManager(
       : "";
   const breadcrumb = buildBreadcrumb(normalizedPathname);
   const pathnameJson = JSON.stringify(encodePath(normalizedPathname));
-  const editQueryJson = JSON.stringify(encodeURIComponent(editQuery));
+  const actionQueryJson = JSON.stringify(encodeURIComponent(actionQuery));
 
   return `<!doctype html>
 <html lang="en">
@@ -134,10 +138,11 @@ export async function renderManager(
     <style>
       body { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem; }
 
+      .breadcrumb-bar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; }
       .breadcrumb {
-        display: flex; align-items: center; gap: 0.2rem;
+        display: flex; align-items: center; gap: 0.2rem; flex: 1; min-width: 0;
         font-size: 1rem; font-weight: 500;
-        color: var(--landsoul-text-on-surface); margin-bottom: 1.5rem; flex-wrap: wrap;
+        color: var(--landsoul-text-on-surface); flex-wrap: wrap;
         overflow: hidden; word-break: break-all;
       }
       .breadcrumb a { text-decoration: none; color: var(--landsoul-text-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
@@ -145,17 +150,26 @@ export async function renderManager(
       .breadcrumb a:not(:last-child):hover { color: var(--landsoul-accent); }
       .breadcrumb span { margin: 0 0.1rem; opacity: 0.35; flex-shrink: 0; }
 
-      .toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; align-items: stretch; }
-      .toolbar fieldset { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.75rem; margin: 0; }
-      .toolbar fieldset legend { font-size: 0.75rem; padding: 0 0.2rem; }
-      .toolbar input[type="file"] { max-width: 180px; padding: 0; }
-      .toolbar input[type="text"] { width: 150px; }
-      @media (max-width: 560px) {
-        .toolbar { flex-direction: column; }
-        .toolbar fieldset { width: 100%; box-sizing: border-box; }
-        .toolbar input[type="file"] { flex: 1; max-width: none; min-width: 0; }
-        .toolbar input[type="text"] { flex: 1; width: auto; min-width: 0; }
+      .breadcrumb-bar > button { flex-shrink: 0; }
+
+      /* Dialog: cap its height and let the inner content scroll (not the element).
+         Only apply the flex layout when open — a closed <dialog> must stay
+         display:none (setting display here unconditionally would force it visible). */
+      #add-dialog {
+        width: 420px; max-width: calc(100vw - 2rem);
+        max-height: calc(100vh - 4rem); padding: 1.5rem; box-sizing: border-box;
+        overflow: hidden;
       }
+      #add-dialog[open] { display: flex; flex-direction: column; }
+      #add-dialog .dialog-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 1rem; flex-shrink: 0; }
+      #add-dialog .dialog-head h2 { margin: 0; font-size: 1.1rem; }
+      #add-dialog .dialog-close { all: unset; cursor: pointer; padding: 0.25rem; border-radius: 4px; display: flex; }
+      #add-dialog .dialog-close:hover { background: var(--landsoul-surface); }
+      .toolbar { display: flex; flex-direction: column; gap: 0.75rem; align-items: stretch; overflow-y: auto; min-height: 0; }
+      .toolbar fieldset { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.75rem; margin: 0; box-sizing: border-box; }
+      .toolbar fieldset legend { font-size: 0.75rem; padding: 0 0.2rem; }
+      .toolbar input[type="file"] { flex: 1; min-width: 0; padding: 0; }
+      .toolbar input[type="text"] { flex: 1; min-width: 0; }
 
       .file-list { margin: 0; }
       .file-list .file-row .row-inner { display: grid; grid-template-columns: 1fr 4.5rem 9rem auto; align-items: center; column-gap: 0.75rem; width: 100%; min-width: 0; }
@@ -218,25 +232,9 @@ export async function renderManager(
     </style>
   </head>
   <body>
-    <nav class="breadcrumb">${breadcrumb}</nav>
-
-    <div class="toolbar">
-      <fieldset>
-        <legend>Upload</legend>
-        <input type="file" id="upload-input" multiple />
-        <button id="upload-btn">Upload</button>
-        <button id="upload-spinner" class="landsoul-spinner" style="display:none" disabled></button>
-      </fieldset>
-      <fieldset>
-        <legend>New Folder</legend>
-        <input type="text" id="mkdir-name" placeholder="Folder name" />
-        <button id="mkdir-btn">Create</button>
-      </fieldset>
-      <fieldset>
-        <legend>New File</legend>
-        <input type="text" id="mkfile-name" placeholder="File name" />
-        <button id="mkfile-btn">Create</button>
-      </fieldset>
+    <div class="breadcrumb-bar">
+      <nav class="breadcrumb">${breadcrumb}</nav>
+      <button id="add-btn" title="Add">+</button>
     </div>
 
     <ul id="file-list" class="file-list landsoul-list">
@@ -265,15 +263,52 @@ export async function renderManager(
       </menu>
     </dialog>
 
+    <dialog id="add-dialog">
+      <div class="dialog-head">
+        <h2>Add</h2>
+        <button id="add-close-btn" class="dialog-close" aria-label="Close">${ICON_CLOSE}</button>
+      </div>
+      <div class="toolbar">
+        <fieldset>
+          <legend>Upload</legend>
+          <input type="file" id="upload-input" multiple />
+          <button id="upload-btn">Upload</button>
+          <button id="upload-spinner" class="landsoul-spinner" style="display:none" disabled></button>
+        </fieldset>
+        <fieldset>
+          <legend>New Folder</legend>
+          <input type="text" id="mkdir-name" placeholder="Folder name" />
+          <button id="mkdir-btn">Create</button>
+        </fieldset>
+        <fieldset>
+          <legend>New File</legend>
+          <input type="text" id="mkfile-name" placeholder="File name" />
+          <button id="mkfile-btn">Create</button>
+        </fieldset>
+        <fieldset>
+          <legend>Upload ZIP</legend>
+          <input type="file" id="zip-upload-input" accept=".zip,application/zip" />
+          <button id="zip-upload-btn">Extract</button>
+        </fieldset>
+      </div>
+    </dialog>
+
     <script>
       const PATHNAME = ${pathnameJson};
-      const EDIT_QUERY = ${editQueryJson};
+      const ACTION_QUERY = ${actionQueryJson};
 
       function lastName(path) {
         const seg = path.split("/").filter(Boolean).pop() || path;
         try { return decodeURIComponent(seg); } catch { return seg; }
       }
 
+      // The "+" button opens the add-actions dialog (upload / new folder / new file / unzip).
+      const addDialog = document.getElementById("add-dialog");
+      document.getElementById("add-btn").addEventListener("click", () => addDialog.showModal());
+      document.getElementById("add-close-btn").addEventListener("click", () => addDialog.close());
+
+      // Directory zip downloads and file downloads are plain links (URL-navigable);
+      // only delete/rename need JS.
       document.getElementById("file-list").addEventListener("click", function(e) {
         const btn = e.target.closest("button");
         if (!btn) return;
@@ -351,11 +386,32 @@ export async function renderManager(
       }
       document.getElementById("upload-btn").addEventListener("click", uploadFiles);
 
+      async function uploadZip() {
+        const input = document.getElementById("zip-upload-input");
+        if (!input.files.length) return;
+        const btn = document.getElementById("zip-upload-btn");
+        btn.classList.add("landsoul-spinner");
+        btn.disabled = true;
+        try {
+          const r = await fetch(PATHNAME + "?" + ACTION_QUERY + "=extract", {
+            method: "PUT",
+            headers: { "Content-Type": "application/zip" },
+            body: input.files[0],
+          });
+          if (r.ok || r.status === 201) location.reload();
+          else alert("Upload ZIP failed: " + r.status + " " + await r.text());
+        } finally {
+          btn.classList.remove("landsoul-spinner");
+          btn.disabled = false;
+        }
+      }
+      document.getElementById("zip-upload-btn").addEventListener("click", uploadZip);
+
       function createFile() {
         const name = document.getElementById("mkfile-name").value.trim();
         if (!name) return;
         const filePath = PATHNAME + encodeURIComponent(name);
-        window.location.href = filePath + "?" + EDIT_QUERY;
+        window.location.href = filePath + "?" + ACTION_QUERY + "=edit";
       }
       document.getElementById("mkfile-btn").addEventListener("click", createFile);
       document.getElementById("mkfile-name").addEventListener("keydown", (e) => { if (e.key === "Enter") createFile(); });

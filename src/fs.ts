@@ -4,8 +4,15 @@ import { dirname, relative } from "node:path/posix";
 import { Readable } from "node:stream";
 import { styleText } from "node:util";
 import { type Dialect, Kysely, sql } from "kysely";
-import { type FsSubset, FULL_PATH, VDirent, VFSError, VStats } from "./abstract.ts";
-import { createEtag, encodePathForSQL, isErrnoException, normalizePathLike, removeSuffixSlash } from "./utils.ts";
+import { type DirEntry, type FsSubset, FULL_PATH, VDirent, VFSError, VStats } from "./abstract.ts";
+import {
+  createEtag,
+  encodePathForSQL,
+  isErrnoException,
+  LIKE_ESCAPE,
+  normalizePathLike,
+  removeSuffixSlash,
+} from "./utils.ts";
 
 const DEFAULT_TABLE_NAME = "filesystem" as const;
 type DEFAULT_TABLE_NAME = typeof DEFAULT_TABLE_NAME;
@@ -51,6 +58,17 @@ class KyselyFs implements FsSubset {
   }
   private get $update() {
     return this._executor.updateTable(this._tableName as DEFAULT_TABLE_NAME);
+  }
+
+  /**
+   * Build a `path LIKE '<prefix>%' ESCAPE '\'` condition. The `ESCAPE` clause is
+   * required because {@link encodePathForSQL} escapes the LIKE wildcards `%`,
+   * `_` (and `\` itself) with a backslash; without it those escapes would be
+   * treated literally and paths containing `_`/`%` (e.g. `__MACOSX`) would fail
+   * to match. `%` is appended raw so it stays a wildcard.
+   */
+  private _pathLikePrefix(prefix: string) {
+    return sql<boolean>`path like ${`${encodePathForSQL(prefix)}%`} escape ${LIKE_ESCAPE}`;
   }
 
   /**
@@ -155,7 +173,7 @@ class KyselyFs implements FsSubset {
         fn.max("modified_at").as("modified_at"),
         sql<number>`0`.as("size"),
       ])
-      .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+      .where(this._pathLikePrefix(dirKey))
       .where((eb) => eb("path", "!=", dirKey))
       .executeTakeFirst();
 
@@ -303,7 +321,7 @@ class KyselyFs implements FsSubset {
         const now = Date.now();
         const allFiles = await this.$select
           .select(["path"])
-          .where("path", "like", `${encodePathForSQL(oldDirKey)}%`)
+          .where(this._pathLikePrefix(oldDirKey))
           .where("path", "!=", oldKey)
           .execute();
         for (const { path: childPath } of allFiles) {
@@ -358,7 +376,7 @@ class KyselyFs implements FsSubset {
         // when not recursive, we should check if there are any children
         const hasChildren = await this.$select
           .select("path")
-          .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+          .where(this._pathLikePrefix(dirKey))
           .where("path", "!=", dirKey)
           .executeTakeFirst();
         if (hasChildren) {
@@ -367,7 +385,7 @@ class KyselyFs implements FsSubset {
       }
 
       // remove the explicit dir row and every descendant (the LIKE also matches dirKey)
-      await this.$delete.where("path", "like", `${encodePathForSQL(dirKey)}%`).execute();
+      await this.$delete.where(this._pathLikePrefix(dirKey)).execute();
       await this.$delete.where("path", "=", dirKey).execute();
     });
   }
@@ -472,7 +490,7 @@ class KyselyFs implements FsSubset {
 
     const allFiles = await this.$select
       .select(["path", "created_at", "modified_at", "size"])
-      .where("path", "like", `${encodePathForSQL(dirKey)}%`)
+      .where(this._pathLikePrefix(dirKey))
       .execute();
 
     // Collect full paths for files and directories to return.
@@ -601,6 +619,122 @@ class KyselyFs implements FsSubset {
 
     if (encoding) return new TextDecoder(encoding).decode(file.content);
     return Buffer.from(file.content);
+  }
+
+  /**
+   * Recursively read every entry under `dir` in a single query. Files are
+   * returned with their content; directories (explicit rows and directories
+   * inferred from nested file paths) are returned with `isDirectory: true` and
+   * no content. Each `name` is relative to `dir` and may contain `/`.
+   *
+   * Throws `ENOTDIR` when `dir` points at a file, and `ENOENT` when it does not
+   * exist.
+   */
+  async _readDirMany(dir: PathLike): Promise<DirEntry[]> {
+    const fileKey = removeSuffixSlash(normalizePathLike(dir));
+    const dirKey = `${fileKey}/`;
+
+    if (await this._getFileStats(fileKey)) {
+      throw new VFSError("not a directory", { syscall: "readdir", code: "ENOTDIR", path: dir });
+    }
+    if (!(await this._getDirStats(dirKey))) {
+      throw new VFSError("no such file or directory", { syscall: "readdir", code: "ENOENT", path: dir });
+    }
+
+    // Single scan of everything under dirKey.
+    const rows = await this.$select.select(["path", "content"]).where(this._pathLikePrefix(dirKey)).execute();
+
+    const files: DirEntry[] = [];
+    const dirNames = new Set<string>();
+    for (const row of rows) {
+      if (row.path === dirKey) continue; // the directory itself
+      const rel = relative(dirKey, row.path);
+      if (row.path.endsWith("/")) {
+        // explicit directory row
+        dirNames.add(removeSuffixSlash(rel));
+      } else {
+        files.push({ name: rel, content: row.content ? Buffer.from(row.content) : Buffer.from([]) });
+      }
+      // Record every ancestor directory implied by this entry's path.
+      const relNoSlash = removeSuffixSlash(rel);
+      let idx = -1;
+      // biome-ignore lint/suspicious/noAssignInExpressions: intended
+      while ((idx = relNoSlash.indexOf("/", idx + 1)) !== -1) {
+        dirNames.add(relNoSlash.slice(0, idx));
+      }
+    }
+
+    const dirs: DirEntry[] = Array.from(dirNames).map((name) => ({ name, isDirectory: true }));
+    return [...dirs, ...files];
+  }
+
+  /**
+   * Write many entries into `dir` in a single transaction, using one multi-row
+   * upsert. Each entry is written at `dir + entry.name`; `isDirectory` entries
+   * create a directory row (path ending in `/`), others write `content` (empty
+   * when omitted). Mirrors {@link writeFile} semantics (upsert; `EISDIR` when a
+   * file target collides with an existing directory).
+   */
+  async _writeDirMany(dir: PathLike, entries: DirEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+
+    const dirKey = `${removeSuffixSlash(normalizePathLike(dir))}/`;
+    const now = Date.now();
+
+    // Build the target rows up front. Each name is a path relative to dir;
+    // normalize it against dirKey so "a/b.txt" and "./b.txt" resolve correctly.
+    // Directory entries get a trailing-slash key with null content.
+    const values = await Promise.all(
+      entries.map(async (entry) => {
+        const key = removeSuffixSlash(normalizePathLike(dirKey + entry.name));
+        if (entry.isDirectory) {
+          return { path: `${key}/`, created_at: now, modified_at: now, size: 0, content: null, etag: "" };
+        }
+        const content = Buffer.from(entry.content ?? new Uint8Array());
+        return {
+          path: key,
+          created_at: now,
+          modified_at: now,
+          size: content.byteLength,
+          content,
+          etag: await createEtag(content),
+        };
+      }),
+    );
+
+    await this._transaction(async () => {
+      // A file target collides with a directory when an explicit dir row exists
+      // (path = key + "/") or a file lives under it — both covered by the single
+      // prefix match `path LIKE key + "/%"`.
+      const fileKeys = values.filter((v) => !v.path.endsWith("/")).map((v) => v.path);
+      if (fileKeys.length) {
+        const collision = await this.$select
+          .select("path")
+          .where((eb) => eb.or(fileKeys.map((key) => this._pathLikePrefix(`${key}/`))))
+          .executeTakeFirst();
+        if (collision) {
+          throw new VFSError("illegal operation on a directory", {
+            syscall: "writeFile",
+            code: "EISDIR",
+            path: collision.path,
+          });
+        }
+      }
+
+      // Single multi-row upsert. On conflict, pull the incoming values from the
+      // virtual `excluded` row so each conflicting row updates with its own data.
+      await this.$insert
+        .values(values)
+        .onConflict((oc) =>
+          oc.column("path").doUpdateSet((eb) => ({
+            modified_at: eb.ref("excluded.modified_at"),
+            size: eb.ref("excluded.size"),
+            content: eb.ref("excluded.content"),
+            etag: eb.ref("excluded.etag"),
+          })),
+        )
+        .execute();
+    });
   }
 
   createReadStream(path: PathLike): Readable {

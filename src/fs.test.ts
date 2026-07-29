@@ -1085,4 +1085,36 @@ describe("KyselyFs", () => {
       assert.equal((await fs.stat("/zero.txt")).size, 0);
     });
   });
+
+  // Regression: paths containing SQL LIKE wildcards (`_`, `%`) or a backslash
+  // must not corrupt the prefix LIKE queries that drive stat/readdir/rmdir.
+  describe("paths with LIKE wildcard characters", () => {
+    for (const name of ["__MACOSX", "50%_off", "a_b", "100%", "back\\slash"]) {
+      it(`handles a directory named ${JSON.stringify(name)}`, async () => {
+        const fs = createFs();
+        await fs.writeFile(`/${name}/child.txt`, "x");
+        await fs.writeFile("/other/keep.txt", "y");
+
+        // The implicit directory is discovered and listed.
+        assert.equal((await fs.stat(`/${name}/`)).isDirectory(), true);
+        assert.deepEqual(await fs.readdir(`/${name}/`), ["child.txt"]);
+        assert.ok((await fs.readdir("/")).includes(name));
+
+        // Recursive rmdir removes exactly this subtree and nothing else.
+        await fs.rmdir(`/${name}/`, { recursive: true });
+        assert.deepEqual((await fs.readdir("/")).sort(), ["other"]);
+        await assert.rejects(() => fs.readdir(`/${name}/`), /ENOENT/);
+      });
+    }
+
+    it("does not over-match a sibling that shares a wildcard-escaped prefix", async () => {
+      const fs = createFs();
+      await fs.writeFile("/a_b/x.txt", "1"); // "_" is a LIKE wildcard
+      await fs.writeFile("/axb/y.txt", "2"); // would match an unescaped "a_b%"
+      assert.deepEqual(await fs.readdir("/a_b/"), ["x.txt"]);
+      await fs.rmdir("/a_b/", { recursive: true });
+      // The sibling that only matches via the wildcard must survive.
+      assert.ok((await fs.readdir("/")).includes("axb"));
+    });
+  });
 });

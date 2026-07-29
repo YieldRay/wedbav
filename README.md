@@ -98,12 +98,16 @@ app.route("/files", webdavApp);
 | `port`    | `number`                                    | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                                                      |
 | `browser` | `"public" \| "private" \| "false" \| false` | `"private"`         | File-serving feature. `private` serves files behind basic auth; `public` serves them without auth; `false` disables it (requests fall through to WebDAV GET semantics).              |
 | `list`    | `"public" \| "private" \| "false" \| false` | inherits `browser`  | Directory auto-listing UI. Same access levels as `browser`, applied independently. Only takes effect when `browser` is enabled; when disabled, dirs without `index.html` return 404. |
-| `editQuery` | `string`                                  | `"edit"`            | Query key that activates the management UI: `?<editQuery>` opens the editor on a file, or forces the directory listing/manager on a directory (even when it has an `index.html`). Change it if your app already uses `?edit`. |
+| `actionQuery` | `string`                              | `"action"`          | Query key that activates a wedbav action, triggered by `?<actionQuery>=<verb>`. `edit` opens the editor on a file or forces the listing/manager on a directory; `download` forces an attachment download on a file or streams a directory tree as a zip; `extract` (PUT only) unzips the request body into the target directory. Change it if your app already uses `?action`. |
 | `auth`    | `(user: string, pass: string) => boolean`   | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                                                              |
 
 `browser` and `list` carry **independent** auth requirements. For example, `{ browser: "public", list: "private" }` serves files to anyone but requires auth to view the directory listing.
 
-The management UI is reached via the `editQuery` (default `?edit`): on a file it opens the editor, and on a directory it forces the listing/manager page — useful for managing files in a directory that has an `index.html`. Since it is part of the `list` feature, it is disabled when `list` is `false` and follows `list`'s auth level.
+Actions are reached via the `actionQuery` (default `?action=<verb>`), and are part of the `list` feature (disabled when `list` is `false`, following `list`'s auth level):
+
+- `?action=edit` — on a file opens the in-browser editor; on a directory forces the listing/manager page even when it has an `index.html`.
+- `?action=download` — on a file forces an attachment download; on a directory streams the whole tree as a zip.
+- `?action=extract` — on a `PUT` request, unzips the request body into the target directory.
 
 ## Self-hosted deployment
 

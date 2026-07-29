@@ -40,16 +40,22 @@ describe("removeSuffixSlash", () => {
 });
 
 describe("encodePathForSQL", () => {
+  // Each wildcard is prefixed with a single backslash; queries pair this with
+  // `ESCAPE '\'`, so a single backslash is correct (double would be wrong).
   it("escapes % character", () => {
-    assert.equal(encodePathForSQL("foo%bar"), "foo\\\\%bar");
+    assert.equal(encodePathForSQL("foo%bar"), "foo\\%bar");
   });
 
   it("escapes _ character", () => {
-    assert.equal(encodePathForSQL("foo_bar"), "foo\\\\_bar");
+    assert.equal(encodePathForSQL("foo_bar"), "foo\\_bar");
   });
 
   it("escapes both % and _", () => {
-    assert.equal(encodePathForSQL("a%b_c"), "a\\\\%b\\\\_c");
+    assert.equal(encodePathForSQL("a%b_c"), "a\\%b\\_c");
+  });
+
+  it("escapes a literal backslash", () => {
+    assert.equal(encodePathForSQL("a\\b"), "a\\\\b");
   });
 
   it("leaves normal paths unchanged", () => {
