@@ -166,10 +166,10 @@ export async function renderManager(
       #add-dialog .dialog-close { all: unset; cursor: pointer; padding: 0.25rem; border-radius: 4px; display: flex; }
       #add-dialog .dialog-close:hover { background: var(--landsoul-surface); }
       .toolbar { display: flex; flex-direction: column; gap: 0.75rem; align-items: stretch; overflow-y: auto; min-height: 0; }
-      .toolbar fieldset { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.75rem; margin: 0; box-sizing: border-box; }
+      .toolbar fieldset { display: flex; align-items: center; gap: 0.4rem; margin: 0; box-sizing: border-box; }
       .toolbar fieldset legend { font-size: 0.75rem; padding: 0 0.2rem; }
-      .toolbar input[type="file"] { flex: 1; min-width: 0; padding: 0; }
-      .toolbar input[type="text"] { flex: 1; min-width: 0; }
+      .toolbar input[type="file"] { flex: 1; width: 0; padding: 0; }
+      .toolbar input[type="text"] { flex: 1; width: 0; }
 
       .file-list { margin: 0; }
       .file-list .file-row .row-inner { display: grid; grid-template-columns: 1fr 4.5rem 9rem auto; align-items: center; column-gap: 0.75rem; width: 100%; min-width: 0; }
