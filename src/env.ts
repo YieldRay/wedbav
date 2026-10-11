@@ -10,6 +10,9 @@ export type Bindings = {
   WEDBAV_TABLE?: string;
 
   WEDBAV_CONNECTION_STRING?: string;
+
+  WEDBAV_JWT_SECRET?: string;
+  WEDBAV_JWT_MAX_AGE?: string;
 };
 
 /**

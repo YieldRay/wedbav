@@ -20,6 +20,16 @@ import {
 } from "./utils.ts";
 import { davXML } from "./xml.ts";
 import { handleZipDownload, handleZipUpload } from "./zip.ts";
+import {
+  buildSessionCookie,
+  clearSessionCookie,
+  isSecureRequest,
+  readSessionCookie,
+  resolveJwtSecret,
+  resolveSessionMaxAge,
+  signSessionToken,
+  verifySessionToken,
+} from "./session.ts";
 
 /**
  * A feature access level:
@@ -70,6 +80,17 @@ export interface WedbavOptions {
   actionQuery?: string | undefined;
   port?: number | undefined;
   middleware?: MiddlewareHandler;
+  /**
+   * JWT signing secret for the session cookie (`wedbav_session`). When unset,
+   * falls back to `WEDBAV_JWT_SECRET`, then a hash of `WEDBAV_PASSWORD` (stable
+   * across restarts), then a random per-process secret.
+   */
+  jwtSecret?: string | undefined;
+  /**
+   * Session cookie lifetime in seconds.
+   * @default 30 days (or `WEDBAV_JWT_MAX_AGE`)
+   */
+  sessionMaxAge?: number | undefined;
 }
 
 type Variables = {
@@ -111,6 +132,11 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
   // Read the requested action verb, e.g. `?action=edit`. Empty string when absent.
   const getAction = (c: Context<WedbavContext>): string =>
     (listMode !== false && c.var.url.searchParams.get(actionQuery)) || "";
+
+  // Session cookie configuration (JWT signing secret, lifetime). The cookie is
+  // only used over HTTPS (see isSecureRequest).
+  const jwtSecret = resolveJwtSecret(options);
+  const sessionMaxAge = resolveSessionMaxAge(options);
 
   const verifyCredentials = (username: string, password: string): boolean => {
     if (typeof options.auth === "function") {
@@ -159,14 +185,29 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     return next();
   });
 
-  // Enforce basic auth inline for a "private" feature. Returns a 401 Response
-  // when credentials are missing/invalid, or undefined when access is granted.
-  const enforceAuth = (c: Context<WedbavContext>): Response | undefined => {
+  // Enforce auth inline for a "private" feature. Returns a 401 Response when
+  // the session cookie and credentials are both missing/invalid, or undefined
+  // when access is granted. A successful basic-auth login issues the session
+  // cookie so the browser does not re-prompt on subsequent requests.
+  const enforceAuth = async (c: Context<WedbavContext>): Promise<Response | undefined> => {
+    if (isSecureRequest(c)) {
+      const token = readSessionCookie(c);
+      if (token && (await verifySessionToken(token, jwtSecret)) !== null) {
+        return undefined;
+      }
+    }
     const header = c.req.header("Authorization");
     const [scheme, encoded] = header?.split(" ") ?? [];
     if (scheme?.toLowerCase() === "basic" && encoded) {
       const [username, ...rest] = Buffer.from(encoded, "base64").toString("utf-8").split(":");
-      if (verifyCredentials(username ?? "", rest.join(":"))) {
+      const name = username ?? "";
+      if (verifyCredentials(name, rest.join(":"))) {
+        if (isSecureRequest(c)) {
+          c.header(
+            "set-cookie",
+            buildSessionCookie(await signSessionToken(name, jwtSecret, sessionMaxAge), sessionMaxAge),
+          );
+        }
         return undefined;
       }
     }
@@ -229,13 +270,16 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     const dir = removeSuffixSlash(pathname) || "/";
 
+    // The logout button only makes sense when the listing itself is behind auth.
+    const showLogout = listMode === "private";
+
     if (!files) {
       // root always shows an empty listing even if the backing directory doesn't exist yet
       if (pathname !== "/") return c.text("Not Found", 404);
-      return c.html(await renderManager(fs, pathname, dir, [], actionQuery));
+      return c.html(await renderManager(fs, pathname, dir, [], actionQuery, showLogout));
     }
 
-    return c.html(await renderManager(fs, pathname, dir, files, actionQuery));
+    return c.html(await renderManager(fs, pathname, dir, files, actionQuery, showLogout));
   };
 
   // Serve a single file as a forced download (Content-Disposition: attachment).
@@ -272,7 +316,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     const action = getAction(c);
     if (action === "edit" || action === "download") {
       if (listMode === "private") {
-        const unauthorized = enforceAuth(c);
+        const unauthorized = await enforceAuth(c);
         if (unauthorized) return unauthorized;
       }
 
@@ -327,7 +371,7 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
         return c.text("Not Found", 404);
       }
       if (listMode === "private") {
-        const unauthorized = enforceAuth(c);
+        const unauthorized = await enforceAuth(c);
         if (unauthorized) return unauthorized;
       }
       return serveListing(c);
@@ -335,28 +379,54 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     // File → file-serving feature.
     if (browserMode === "private") {
-      const unauthorized = enforceAuth(c);
+      const unauthorized = await enforceAuth(c);
       if (unauthorized) return unauthorized;
     }
 
     return serveFile(c, filepath, stat);
   });
 
-  // basic auth for all remaining (non-browser) requests, e.g. WebDAV methods.
+  // Logout: `POST ?<actionQuery>=logout` clears the session cookie. Registered
+  // before the auth middleware so it works even when the cookie has expired.
+  app.post("/*", async (c, next) => {
+    if (c.var.url.searchParams.get(actionQuery) !== "logout") return next();
+    c.header("set-cookie", clearSessionCookie());
+    return c.redirect("/", 303);
+  });
+
+  // Auth for all remaining (non-browser) requests, e.g. WebDAV methods: a valid
+  // session cookie (HTTPS only) is accepted in place of basic auth; otherwise
+  // basic auth is enforced as before, and a successful login issues the cookie.
   app.use(
     "/*",
-    basicAuth({
-      verifyUser: (
-        username,
-        password,
-        _c: Context<{
-          Variables: Variables;
-          // although we have typed the Bindings, but since it only works in Cloudflare Workers,
-          // we actually DO NOT use it
-          Bindings: Bindings;
-        }>,
-      ) => verifyCredentials(username, password),
-    }),
+    async (c, next) => {
+      if (isSecureRequest(c)) {
+        const token = readSessionCookie(c);
+        if (token && (await verifySessionToken(token, jwtSecret)) !== null) {
+          return next();
+        }
+      }
+      return basicAuth({
+        verifyUser: (
+          username,
+          password,
+          _c: Context<{
+            Variables: Variables;
+            // although we have typed the Bindings, but since it only works in Cloudflare Workers,
+            // we actually DO NOT use it
+            Bindings: Bindings;
+          }>,
+        ) => verifyCredentials(username, password),
+        onAuthSuccess: async (c, username) => {
+          if (isSecureRequest(c)) {
+            c.header(
+              "set-cookie",
+              buildSessionCookie(await signSessionToken(username, jwtSecret, sessionMaxAge), sessionMaxAge),
+            );
+          }
+        },
+      })(c, next);
+    },
   );
 
   app.on("PROPFIND", "/*", async (c) => {

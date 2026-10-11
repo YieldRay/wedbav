@@ -21,30 +21,30 @@
     "coverage": "node --experimental-test-coverage --test src/*.test.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.12",
-    "@hono/standard-validator": "^0.2.0",
+    "@hono/node-server": "^2.1.4",
+    "@hono/standard-validator": "^0.2.3",
     "@libsql/kysely-libsql": "^0.4.1",
     "@ricsam/linkfs": "^2.0.8",
     "fflate": "^0.8.3",
-    "hono": "^4.12.32",
-    "hono-openapi": "^1.3.1",
-    "kysely": "^0.29.4",
+    "hono": "^4.13.13",
+    "hono-openapi": "^1.3.5",
+    "kysely": "^0.29.6",
     "kysely-postgres-js": "^3.0.0",
-    "memfs": "^4.64.0",
-    "pg": "^8.22.0",
+    "memfs": "^4.80.0",
+    "pg": "^8.23.1",
     "postgres": "^3.4.9",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.3",
     "@types/deno": "^2.7.0",
-    "@types/node": "^26.1.2",
-    "@types/pg": "^8.20.0",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@10.34.7",
   "engines": {
     "node": ">=22"
   },

@@ -840,3 +840,213 @@ describe("directory management via ?action=edit", () => {
     assert.ok(body.includes('href="./sub/?manage=edit"'), `expected dir row-link to use ?manage=edit in:\n${body}`);
   });
 });
+
+// ─── O. JWT session cookie ──────────────────────────────────────────────────
+// After a successful basic-auth login over HTTPS the server sets an HttpOnly
+// `wedbav_session` cookie; a valid cookie authenticates later requests without
+// the Authorization header. The cookie is only used over HTTPS.
+
+describe("JWT session cookie", () => {
+  async function appWith(options: Partial<WedbavOptions> = {}) {
+    const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+    await fs.ready();
+    const app = createHono(fs, { auth: (u, p) => u === "user" && p === "pass", ...options });
+    return { app, fs };
+  }
+  const CREDS = `Basic ${btoa("user:pass")}`;
+  const cookieOf = (res: Response) => res.headers.get("set-cookie")?.match(/wedbav_session=([^;]+)/)?.[1];
+  const https = (path: string, init: RequestInit = {}) => new Request(`https://localhost${path}`, init);
+
+  it("issues an HttpOnly Secure session cookie on successful login (WebDAV)", async () => {
+    const { app } = await appWith({ browser: false });
+    const res = await app.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    assert.equal(res.status, 201);
+    const sc = res.headers.get("set-cookie") ?? "";
+    assert.match(sc, /wedbav_session=[^;]+/);
+    assert.match(sc, /HttpOnly/);
+    assert.match(sc, /SameSite=Lax/);
+    assert.match(sc, /Secure/);
+    assert.match(sc, /Max-Age=\d+/);
+  });
+
+  it("issues a cookie on a browser:private file GET", async () => {
+    const { app, fs } = await appWith({ browser: "private" });
+    await fs.writeFile("/sec.txt", "secret");
+    const res = await app.request(https("/sec.txt", { headers: { Authorization: CREDS } }));
+    assert.equal(res.status, 200);
+    assert.ok(cookieOf(res), "expected a session cookie on the file response");
+  });
+
+  it("authenticates a WebDAV request via cookie alone", async () => {
+    const { app } = await appWith({ browser: false });
+    const login = await app.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const res = await app.request(
+      https("/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${token}` } }),
+    );
+    assert.equal(res.status, 201);
+  });
+
+  it("authenticates a browser:private file GET via cookie alone", async () => {
+    const { app, fs } = await appWith({ browser: "private" });
+    await fs.writeFile("/sec.txt", "secret");
+    const login = await app.request(https("/sec.txt", { headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const res = await app.request(https("/sec.txt", { headers: { Cookie: `wedbav_session=${token}` } }));
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "secret");
+  });
+
+  it("rejects a tampered cookie with 401", async () => {
+    const { app } = await appWith({ browser: false });
+    const login = await app.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const tampered = token.endsWith("a") ? `${token.slice(0, -1)}b` : `${token.slice(0, -1)}a`;
+    const res = await app.request(
+      https("/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${tampered}` } }),
+    );
+    assert.equal(res.status, 401);
+    assert.ok(res.headers.get("www-authenticate"), "401 must carry the basic-auth challenge");
+  });
+
+  it("rejects an expired cookie with 401", async () => {
+    const { app } = await appWith({ browser: false, sessionMaxAge: 0 });
+    const login = await app.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const res = await app.request(
+      https("/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${token}` } }),
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("does not issue a cookie over plain HTTP", async () => {
+    const { app } = await appWith({ browser: false });
+    const res = await app.request(
+      new Request("http://localhost/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }),
+    );
+    assert.equal(res.status, 201);
+    assert.equal(res.headers.get("set-cookie"), null);
+  });
+
+  it("ignores the session cookie over plain HTTP", async () => {
+    const { app } = await appWith({ browser: false });
+    const login = await app.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const res = await app.request(
+      new Request("http://localhost/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${token}` } }),
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("accepts the cookie when a reverse proxy terminates TLS (X-Forwarded-Proto: https)", async () => {
+    const { app } = await appWith({ browser: false });
+    const login = await app.request(
+      new Request("http://localhost/x.txt", {
+        method: "PUT",
+        body: "x",
+        headers: { Authorization: CREDS, "X-Forwarded-Proto": "https" },
+      }),
+    );
+    const token = cookieOf(login);
+    assert.ok(token, "cookie should be issued behind a TLS-terminating proxy");
+    const res = await app.request(
+      new Request("http://localhost/y.txt", {
+        method: "PUT",
+        body: "y",
+        headers: { Cookie: `wedbav_session=${token}`, "X-Forwarded-Proto": "https" },
+      }),
+    );
+    assert.equal(res.status, 201);
+  });
+
+  it("logout clears the session cookie", async () => {
+    const { app } = await appWith({ browser: "private" });
+    const login = await app.request(https("/", { headers: { Accept: "text/html", Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const out = await app.request(
+      https("/?action=logout", { method: "POST", headers: { Cookie: `wedbav_session=${token}` } }),
+    );
+    assert.equal(out.status, 303);
+    assert.equal(out.headers.get("location"), "/");
+    assert.match(out.headers.get("set-cookie") ?? "", /wedbav_session=;.*Max-Age=0/);
+    // The browser stops sending the cookie after the clearing Set-Cookie, so a
+    // request without it must present credentials again.
+    const after = await app.request(https("/", { headers: { Accept: "text/html" } }));
+    assert.equal(after.status, 401);
+  });
+
+  it("POST without the logout action still returns 405", async () => {
+    const { app } = await appWith({ browser: false });
+    const res = await app.request(https("/x.txt", { method: "POST", headers: { Authorization: CREDS } }));
+    assert.equal(res.status, 405);
+  });
+
+  it("manager listing shows a logout form when the listing is private", async () => {
+    const { app, fs } = await appWith({ browser: "private" });
+    await fs.mkdir("/adir");
+    const res = await app.request(https("/adir/", { headers: { Accept: "text/html", Authorization: CREDS } }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(body.includes('method="post"'), "expected a logout form in the manager");
+    assert.ok(body.includes("?action=logout"), "expected the logout form to post to ?action=logout");
+  });
+
+  it("manager listing hides the logout form when the listing is public", async () => {
+    const { app, fs } = await appWith({ browser: "public", list: "public" });
+    await fs.mkdir("/adir");
+    const res = await app.request(https("/adir/", { headers: { Accept: "text/html" } }));
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(!body.includes("logout"), "no logout form for public listings");
+  });
+
+  it("session cookies survive a server restart (password-derived secret)", async () => {
+    const pw = process.env as { WEDBAV_PASSWORD?: string };
+    const prev = pw.WEDBAV_PASSWORD;
+    pw.WEDBAV_PASSWORD = "s3cret";
+    try {
+      const makeApp = () => {
+        const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+        return fs.ready().then(() => createHono(fs, { browser: false, auth: (u, p) => u === "user" && p === "s3cret" }));
+      };
+      const app1 = await makeApp();
+      const login = await app1.request(
+        https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: `Basic ${btoa("user:s3cret")}` } }),
+      );
+      const token = cookieOf(login);
+      assert.ok(token);
+      // A fresh app instance (same process env) must accept the old cookie.
+      const app2 = await makeApp();
+      const res = await app2.request(
+        https("/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${token}` } }),
+      );
+      assert.equal(res.status, 201);
+    } finally {
+      if (prev === undefined) delete pw.WEDBAV_PASSWORD;
+      else pw.WEDBAV_PASSWORD = prev;
+    }
+  });
+
+  it("honors an explicit jwtSecret across instances", async () => {
+    const makeApp = async () => {
+      const fs = createKyselyFs(createTestDialect(), { dbType: "sqlite" });
+      await fs.ready();
+      return createHono(fs, { browser: false, auth: (u, p) => u === "user" && p === "pass", jwtSecret: "fixed" });
+    };
+    const app1 = await makeApp();
+    const login = await app1.request(https("/x.txt", { method: "PUT", body: "x", headers: { Authorization: CREDS } }));
+    const token = cookieOf(login);
+    assert.ok(token);
+    const app2 = await makeApp();
+    const res = await app2.request(
+      https("/y.txt", { method: "PUT", body: "y", headers: { Cookie: `wedbav_session=${token}` } }),
+    );
+    assert.equal(res.status, 201);
+  });
+});

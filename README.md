@@ -98,10 +98,14 @@ app.route("/files", webdavApp);
 | `port`    | `number`                                    | `3000` / `PORT` env | Port to listen on (used by `startServerFromFS`)                                                                                                                                      |
 | `browser` | `"public" \| "private" \| "false" \| false` | `"private"`         | File-serving feature. `private` serves files behind basic auth; `public` serves them without auth; `false` disables it (requests fall through to WebDAV GET semantics).              |
 | `list`    | `"public" \| "private" \| "false" \| false` | inherits `browser`  | Directory auto-listing UI. Same access levels as `browser`, applied independently. Only takes effect when `browser` is enabled; when disabled, dirs without `index.html` return 404. |
-| `actionQuery` | `string`                              | `"action"`          | Query key that activates a wedbav action, triggered by `?<actionQuery>=<verb>`. `edit` opens the editor on a file or forces the listing/manager on a directory; `download` forces an attachment download on a file or streams a directory tree as a zip; `extract` (PUT only) unzips the request body into the target directory. Change it if your app already uses `?action`. |
+| `actionQuery` | `string`                              | `"action"`          | Query key that activates a wedbav action, triggered by `?<actionQuery>=<verb>`. `edit` opens the editor on a file or forces the listing/manager on a directory; `download` forces an attachment download on a file or streams a directory tree as a zip; `extract` (PUT only) unzips the request body into the target directory; `logout` (POST only) clears the session cookie. Change it if your app already uses `?action`. |
 | `auth`    | `(user: string, pass: string) => boolean`   | env credentials     | Custom auth callback; falls back to `WEDBAV_USERNAME`/`WEDBAV_PASSWORD`                                                                                                              |
+| `jwtSecret` | `string`                                | derived             | JWT signing secret for the session cookie. Defaults to `WEDBAV_JWT_SECRET`, then a hash of `WEDBAV_PASSWORD`, then a random per-process secret. Set it explicitly (or set `WEDBAV_JWT_SECRET`) when using a custom `auth` callback so sessions survive restarts. |
+| `sessionMaxAge` | `number` (seconds)                   | `2592000` (30 days) | Session cookie lifetime. Overridable via `WEDBAV_JWT_MAX_AGE`.                                                                                                                       |
 
 `browser` and `list` carry **independent** auth requirements. For example, `{ browser: "public", list: "private" }` serves files to anyone but requires auth to view the directory listing.
+
+Successful basic-auth logins from a browser are remembered with an HttpOnly JWT session cookie (`wedbav_session`, HMAC-SHA256), so the browser does not re-prompt on every request or after a restart. The cookie is only issued and accepted over HTTPS (direct TLS or `X-Forwarded-Proto: https` from a reverse proxy) and always carries `Secure`; over plain HTTP every request still needs basic auth. `POST ?action=logout` (or the Log out button in the manager) clears the cookie.
 
 Actions are reached via the `actionQuery` (default `?action=<verb>`), and are part of the `list` feature (disabled when `list` is `false`, following `list`'s auth level):
 
@@ -132,4 +136,6 @@ WEDBAV_PASSWORD=secret
 WEDBAV_BROWSER=private     # public | private | false  (file serving)
 WEDBAV_LIST=private        # public | private | false  (dir listing; defaults to WEDBAV_BROWSER)
 WEDBAV_TABLE=filesystem    # custom table name
+WEDBAV_JWT_SECRET=...      # optional; session cookie signing secret (defaults to a hash of WEDBAV_PASSWORD)
+WEDBAV_JWT_MAX_AGE=2592000 # optional; session cookie lifetime in seconds (default 30 days)
 ```
