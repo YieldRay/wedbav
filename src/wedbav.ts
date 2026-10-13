@@ -22,7 +22,6 @@ import { davXML } from "./xml.ts";
 import { handleZipDownload, handleZipUpload } from "./zip.ts";
 import {
   buildSessionCookie,
-  clearSessionCookie,
   isSecureRequest,
   readSessionCookie,
   resolveJwtSecret,
@@ -88,7 +87,7 @@ export interface WedbavOptions {
   jwtSecret?: string | undefined;
   /**
    * Session cookie lifetime in seconds.
-   * @default 30 days (or `WEDBAV_JWT_MAX_AGE`)
+   * @default 7 days (or `WEDBAV_JWT_MAX_AGE`)
    */
   sessionMaxAge?: number | undefined;
 }
@@ -270,16 +269,13 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
 
     const dir = removeSuffixSlash(pathname) || "/";
 
-    // The logout button only makes sense when the listing itself is behind auth.
-    const showLogout = listMode === "private";
-
     if (!files) {
       // root always shows an empty listing even if the backing directory doesn't exist yet
       if (pathname !== "/") return c.text("Not Found", 404);
-      return c.html(await renderManager(fs, pathname, dir, [], actionQuery, showLogout));
+      return c.html(await renderManager(fs, pathname, dir, [], actionQuery));
     }
 
-    return c.html(await renderManager(fs, pathname, dir, files, actionQuery, showLogout));
+    return c.html(await renderManager(fs, pathname, dir, files, actionQuery));
   };
 
   // Serve a single file as a forced download (Content-Disposition: attachment).
@@ -384,14 +380,6 @@ export function createHono(fs: FsSubset, options: WedbavOptions) {
     }
 
     return serveFile(c, filepath, stat);
-  });
-
-  // Logout: `POST ?<actionQuery>=logout` clears the session cookie. Registered
-  // before the auth middleware so it works even when the cookie has expired.
-  app.post("/*", async (c, next) => {
-    if (c.var.url.searchParams.get(actionQuery) !== "logout") return next();
-    c.header("set-cookie", clearSessionCookie());
-    return c.redirect("/", 303);
   });
 
   // Auth for all remaining (non-browser) requests, e.g. WebDAV methods: a valid

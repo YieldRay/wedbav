@@ -6,7 +6,7 @@ import type { WedbavOptions } from "./wedbav.ts";
 
 export const SESSION_COOKIE = "wedbav_session";
 
-const DEFAULT_MAX_AGE = 30 * 24 * 60 * 60; // 30 days
+const DEFAULT_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
 
 /**
  * Resolve the JWT signing secret. Precedence:
@@ -72,10 +72,6 @@ export async function verifySessionToken(token: string, secret: string): Promise
 
 export function buildSessionCookie(token: string, maxAge: number): string {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${maxAge}`;
-}
-
-export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0`;
 }
 
 export function readSessionCookie(c: Context): string | undefined {

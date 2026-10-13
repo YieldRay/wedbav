@@ -79,7 +79,6 @@ export async function renderManager(
   dir: string,
   files: Dirent[],
   actionQuery = "action",
-  showLogout = false,
 ): Promise<string> {
   const normalizedPathname = pathname.endsWith("/") ? pathname : `${pathname}/`;
 
@@ -105,10 +104,6 @@ export async function renderManager(
   });
 
   const rows = entries.map((e) => buildRow(e, normalizedPathname, actionQuery)).join("\n");
-  const q = encodeURIComponent(actionQuery);
-  const logoutForm = showLogout
-    ? `<form method="post" action="?${q}=logout" class="logout-form"><button type="submit">Log out</button></form>`
-    : "";
   const parentHref = escapeXML(`../?${encodeURIComponent(actionQuery)}=edit`);
   const parentRow =
     normalizedPathname !== "/"
@@ -156,14 +151,6 @@ export async function renderManager(
       .breadcrumb span { margin: 0 0.1rem; opacity: 0.35; flex-shrink: 0; }
 
       .breadcrumb-bar > button { flex-shrink: 0; }
-
-      .breadcrumb-bar form { margin: 0; flex-shrink: 0; }
-      .breadcrumb-bar form button {
-        all: unset; cursor: pointer; padding: 0.25rem 0.5rem;
-        border-radius: 4px; color: var(--landsoul-text-on-surface);
-        font: inherit; font-size: 0.85rem;
-      }
-      .breadcrumb-bar form button:hover { background: var(--landsoul-surface); }
 
       /* Dialog: cap its height and let the inner content scroll (not the element).
          Only apply the flex layout when open — a closed <dialog> must stay
@@ -247,7 +234,6 @@ export async function renderManager(
   <body>
     <div class="breadcrumb-bar">
       <nav class="breadcrumb">${breadcrumb}</nav>
-      ${logoutForm}
       <button id="add-btn" title="Add">+</button>
     </div>
 

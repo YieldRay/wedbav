@@ -964,48 +964,6 @@ describe("JWT session cookie", () => {
     assert.equal(res.status, 201);
   });
 
-  it("logout clears the session cookie", async () => {
-    const { app } = await appWith({ browser: "private" });
-    const login = await app.request(https("/", { headers: { Accept: "text/html", Authorization: CREDS } }));
-    const token = cookieOf(login);
-    assert.ok(token);
-    const out = await app.request(
-      https("/?action=logout", { method: "POST", headers: { Cookie: `wedbav_session=${token}` } }),
-    );
-    assert.equal(out.status, 303);
-    assert.equal(out.headers.get("location"), "/");
-    assert.match(out.headers.get("set-cookie") ?? "", /wedbav_session=;.*Max-Age=0/);
-    // The browser stops sending the cookie after the clearing Set-Cookie, so a
-    // request without it must present credentials again.
-    const after = await app.request(https("/", { headers: { Accept: "text/html" } }));
-    assert.equal(after.status, 401);
-  });
-
-  it("POST without the logout action still returns 405", async () => {
-    const { app } = await appWith({ browser: false });
-    const res = await app.request(https("/x.txt", { method: "POST", headers: { Authorization: CREDS } }));
-    assert.equal(res.status, 405);
-  });
-
-  it("manager listing shows a logout form when the listing is private", async () => {
-    const { app, fs } = await appWith({ browser: "private" });
-    await fs.mkdir("/adir");
-    const res = await app.request(https("/adir/", { headers: { Accept: "text/html", Authorization: CREDS } }));
-    assert.equal(res.status, 200);
-    const body = await res.text();
-    assert.ok(body.includes('method="post"'), "expected a logout form in the manager");
-    assert.ok(body.includes("?action=logout"), "expected the logout form to post to ?action=logout");
-  });
-
-  it("manager listing hides the logout form when the listing is public", async () => {
-    const { app, fs } = await appWith({ browser: "public", list: "public" });
-    await fs.mkdir("/adir");
-    const res = await app.request(https("/adir/", { headers: { Accept: "text/html" } }));
-    assert.equal(res.status, 200);
-    const body = await res.text();
-    assert.ok(!body.includes("logout"), "no logout form for public listings");
-  });
-
   it("session cookies survive a server restart (password-derived secret)", async () => {
     const pw = process.env as { WEDBAV_PASSWORD?: string };
     const prev = pw.WEDBAV_PASSWORD;
